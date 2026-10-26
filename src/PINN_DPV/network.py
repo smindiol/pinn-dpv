@@ -22,7 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from . import scaling
+from PINN_DPV import scaling
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",

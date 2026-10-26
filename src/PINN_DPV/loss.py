@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from scipy.interpolate import CubicSpline
 
-from . import contacts, interfaces, network, optics, physics, scaling  # noqa: F401
+from PINN_DPV import contacts, interfaces, network, optics, physics, scaling  # noqa: F401
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",

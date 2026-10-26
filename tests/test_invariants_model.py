@@ -346,11 +346,14 @@ def test_sync_writes_results_branch_and_asset(tmp_path) -> None:
 
 def test_drive_mirror_copies_run(tmp_path) -> None:
     """Persistence (AGREED): on Colab the run directory is mirrored to Drive and restorable from it."""
-    run_dir, drive = tmp_path / "run", tmp_path / "drive"
-    drive.mkdir()
+    run_dir, drive = tmp_path / "run", tmp_path / "MyDrive" / "pinn-dpv-runs"
+    (tmp_path / "MyDrive").mkdir()
     persistence.save_checkpoint(str(run_dir), {"it": 9})
-    assert persistence.mirror(str(run_dir), str(drive), "r1") == str(drive / "r1")
-    assert persistence.mirror(str(run_dir), str(tmp_path / "absent"), "r1") is None
+    assert persistence.mirror(str(run_dir), str(drive), "r1") == str(drive / "r1")  # created on first use
+    assert (drive / "r1" / "checkpoint.pkl").exists()
+    unmounted = tmp_path / "unmounted" / "pinn-dpv-runs"
+    assert persistence.mirror(str(run_dir), str(unmounted), "r1") is None
+    assert not unmounted.parent.exists()
     fresh = tmp_path / "fresh"
     assert persistence.restore(str(fresh), "r1", mirror_root=str(drive)) == "mirror"
     assert persistence.load_checkpoint(str(fresh))["it"] == 9
@@ -582,3 +585,26 @@ def test_pilot_config_matches_protocol() -> None:
     assert (cfg.strategy, cfg.k_s, cfg.fourier_features, cfg.width, cfg.depth) == ("fixed", 0, 0, 512, 6)
     assert (cfg.adam_iters, cfg.lbfgs_iters, cfg.lr) == (5000, 500, 3e-4)
     assert steps.PILOT_FAMILY_STAGES == ("E1A", "E3A") and steps.PILOT_SEEDS == (0, 1, 2)
+
+
+def test_budget_rule_stops_where_drop_falls_below_half_r() -> None:
+    """Experiments v01, E0: the budget is the mark after which validation e_PCE stops dropping
+    by more than r/2 per 1000 iterations, and is undefined while it still drops faster."""
+    r = 0.05
+    curve = {"1000": 1.0, "2000": 0.4, "3000": 0.38, "4000": 0.37, "5000": 0.369}
+    assert steps.budget_rule(curve, r) == 2000
+    falling = {1000: 1.0, 2000: 0.8, 3000: 0.6}
+    assert steps.budget_rule(falling, r) is None
+
+
+def test_canonical_paths_accept_flat_layout(tmp_path) -> None:
+    """The Kaggle dataset holds the canonical files flat; dPV writes them under <run>/."""
+    for rel in data.CANONICAL_FILES["E2A"]:
+        (tmp_path / os.path.basename(rel)).write_bytes(b"")
+    assert data.canonical_paths("E2A", str(tmp_path)) == [
+        str(tmp_path / os.path.basename(rel)) for rel in data.CANONICAL_FILES["E2A"]]
+    nested = tmp_path / "nested"
+    for rel in data.CANONICAL_FILES["E2A"]:
+        (nested / rel).parent.mkdir(parents=True, exist_ok=True)
+        (nested / rel).write_bytes(b"")
+    assert data.canonical_paths("E2A", str(nested)) == [str(nested / rel) for rel in data.CANONICAL_FILES["E2A"]]

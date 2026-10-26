@@ -308,8 +308,13 @@ def fetch_checkpoint(run_dir: str, run_id: str, releases) -> bool:
 
 # --- Drive mirror ------------------------------------------------------------------------
 def mirror(run_dir: str, mirror_root, run_id: str):
-    """Copy the run directory to mirror_root/run_id (Drive on Colab); None when no mirror."""
-    if not mirror_root or not os.path.isdir(mirror_root):
+    """Copy the run directory to mirror_root/run_id (Drive on Colab); None when no mirror.
+
+    mirror_root itself is created on first use; its parent must already exist, because a
+    missing parent means Drive is not mounted, and writing there would fill the VM's own
+    disk under a path that looks like Drive and vanishes with the session.
+    """
+    if not mirror_root or not os.path.isdir(os.path.dirname(os.path.abspath(mirror_root))):
         return None
     dest = os.path.join(mirror_root, run_id)
     os.makedirs(dest, exist_ok=True)

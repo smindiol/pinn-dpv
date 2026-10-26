@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
-from . import network
+from PINN_DPV import network
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",

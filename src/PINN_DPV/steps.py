@@ -19,12 +19,12 @@ import glob
 import json
 import os
 import time
+from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 
-from dataclasses import asdict
-
-from . import data, evaluation, loss, persistence, scaling, training
+from PINN_DPV import data, evaluation, loss, persistence, scaling, training
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
@@ -33,13 +33,19 @@ __provenance__ = {
     "invariants": [
         "sigma_per_seed_uses_only_training_devices",
         "pilot_config_matches_protocol",
+        "budget_rule_stops_where_drop_falls_below_half_r",
     ],
 }
 
 PRODUCT = "PINN-DPV"
-SIGMA_DIR = f"{PRODUCT}/Results/sigma"
-PILOT_DIR = f"{PRODUCT}/Results/pilot"
-REPORT_DIR = f"{PRODUCT}/Results/report"
+# Anchored to the repository, never the working directory: `step`, a notebook and a
+# remote worker each start somewhere else, and all of them must write the same tree.
+# $PINN_DPV_RESULTS moves every output elsewhere (a Drive folder on Colab).
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RESULTS_ROOT = Path(os.environ.get("PINN_DPV_RESULTS") or REPO_ROOT / PRODUCT / "Results")
+SIGMA_DIR = str(RESULTS_ROOT / "sigma")
+PILOT_DIR = str(RESULTS_ROOT / "pilot")
+REPORT_DIR = str(RESULTS_ROOT / "report")
 FAMILY_STAGES = ("E1A", "E1B", "E2A", "E2B", "E3A", "E3B", "E4A", "E4B")
 SEEDS = tuple(range(10))
 PILOT_FAMILY_STAGES = ("E1A", "E3A")
@@ -110,6 +116,11 @@ def compute_sigma(family_stage: str, seeds=SEEDS, root=None, out_dir=SIGMA_DIR, 
         mine = [k.split("/")[-1] for k in keys if k.startswith(block + "/")]
         for dev in data.iter_devices(path, "sims", keys=mine):
             per_device[dev.key] = device_sums(fs, dev)
+            n = len(per_device)
+            if n % 50 == 0 or n == len(keys):
+                spent = time.time() - t0
+                print(f"[sigma] {family_stage}: {n}/{len(keys)} devices, "
+                      f"remaining ~{spent / n * (len(keys) - n) / 60:.1f} min", flush=True)
     seconds = time.time() - t0
     floor_r = reference_floor(family_stage, root)
     os.makedirs(out_dir, exist_ok=True)
@@ -125,10 +136,17 @@ def compute_sigma(family_stage: str, seeds=SEEDS, root=None, out_dir=SIGMA_DIR, 
     return paths
 
 
-def run_sigma():
-    """Local step: sigma JSONs for every family-stage and seed (CPU)."""
-    for fs in FAMILY_STAGES:
-        compute_sigma(fs)
+def run_sigma(family_stages=FAMILY_STAGES, max_devices=None):
+    """Local step: sigma JSONs for every family-stage and seed (CPU); skips finished ones."""
+    out, t0 = [], time.time()
+    for i, fs in enumerate(family_stages):
+        print(f"[sigma] {fs} ({i + 1}/{len(family_stages)}), elapsed {(time.time() - t0) / 60:.1f} min", flush=True)
+        done = [os.path.join(SIGMA_DIR, f"{fs}_seed{s}.json") for s in SEEDS]
+        if max_devices is None and all(os.path.exists(p) for p in done):
+            out.extend(done)
+            continue
+        out.extend(compute_sigma(fs, max_devices=max_devices))
+    return out
 
 
 # --- pilot ------------------------------------------------------------------------------------
@@ -145,9 +163,44 @@ def load_sigma(family_stage: str, seed: int, sigma_dir=SIGMA_DIR) -> dict:
         return json.load(f)
 
 
+class Progress:
+    """Prints how far a sequence of runs has gone and how long the rest should take.
+
+    A run's share is its voltages done over its voltage budget (equilibrium counts as
+    one more); the estimate extrapolates the wall time this session has spent so far.
+    """
+
+    def __init__(self, n_runs: int, label: str = "", stream=None):
+        self.n_runs, self.label, self.stream = n_runs, label, stream
+        self.done_runs, self.t0 = 0, time.time()
+
+    def _print(self, msg):
+        print(msg, file=self.stream, flush=True)
+
+    def start_run(self, run_id, k_max):
+        self.run_id, self.k_max, self.t_run = run_id, k_max, time.time()
+        self._print(f"[{self.label}] run {self.done_runs + 1}/{self.n_runs}: {run_id} ({k_max} voltages max)")
+
+    def update(self, st, voltage_done):
+        steps_done = 0 if st["stage"] == "eq" and not voltage_done else (st["j"] + 1 if st["stage"] != "eq" else 1)
+        frac_run = min(steps_done / (self.k_max + 1), 1.0)
+        frac = (self.done_runs + frac_run) / self.n_runs
+        spent = time.time() - self.t0
+        eta = spent / frac - spent if frac > 0 else float("nan")
+        where = "equilibrium" if st["stage"] == "eq" else f"V_{st['j']}"
+        tag = "done" if voltage_done else f"{st.get('phase', '')} it {st.get('it', 0)}"
+        self._print(f"[{self.label}] {100 * frac:5.1f}%  {self.run_id} {where} {tag}  "
+                    f"elapsed {spent / 60:6.1f} min  remaining ~{eta / 60:6.1f} min")
+
+    def end_run(self):
+        self.done_runs += 1
+        self._print(f"[{self.label}] finished {self.done_runs}/{self.n_runs} runs "
+                    f"in {(time.time() - self.t0) / 60:.1f} min")
+
+
 def run_one(cfg: training.TrainConfig, out_root=PILOT_DIR, sigma_dir=SIGMA_DIR, root=None,
             remote_url=None, releases=None, mirror_root=None, token=None, sync_every_seconds=600.0,
-            keep_models_dir=None):
+            keep_models_dir=None, progress=None):
     """Train (or resume) one run with persistence, then write and push its summary."""
     run_id = cfg.resolved_run_id()
     run_dir = os.path.join(out_root, run_id)
@@ -159,7 +212,12 @@ def run_one(cfg: training.TrainConfig, out_root=PILOT_DIR, sigma_dir=SIGMA_DIR, 
                                                  "devices": {k: len(v) for k, v in setup.split.items()}})
     sync = persistence.Syncer(run_dir, run_id, remote_url, releases, mirror_root, token, sync_every_seconds)
 
+    if progress:
+        progress.start_run(run_id, setup.k_max)
+
     def callback(st, voltage_done):
+        if progress:
+            progress.update(st, voltage_done)
         if voltage_done:
             persistence.append_jsonl(run_dir, "metrics.jsonl",
                                      {"stage": st["stage"], "j": st["j"], "seconds": st["seconds"],
@@ -171,6 +229,8 @@ def run_one(cfg: training.TrainConfig, out_root=PILOT_DIR, sigma_dir=SIGMA_DIR, 
     persistence.write_json(run_dir, "summary.json", summary)
     sync.push(with_results=True)
     persistence.mirror(run_dir, mirror_root, run_id)
+    if progress:
+        progress.end_run()
     return summary
 
 
@@ -184,25 +244,49 @@ def _memory():
         return {}
 
 
+REHEARSAL = dict(width=64, depth=3, n_q=256, adam_iters=200, lbfgs_iters=20, max_devices=8,
+                 max_voltages=4, eval_marks=(100, 200), checkpoint_every=50)
+
+
 def run_pilot(family_stages=PILOT_FAMILY_STAGES, seeds=PILOT_SEEDS, root=None, mirror_root=None,
-              push=True, overrides=None):
+              push=True, overrides=None, rehearsal=False):
     """Remote step: E0's pilot runs, one after another, each resumable.
 
-    `overrides` shrinks the configuration for a rehearsal (e.g. a Kaggle GPU smoke run).
+    `rehearsal` shrinks every run to REHEARSAL (the Kaggle GPU check before the A100) and
+    tags its run ids, so a rehearsal never resumes into, or overwrites, a full run.
+    `overrides` adjusts single fields on top. `root` defaults to $PINN_DPV_DATA and
+    `mirror_root` to $PINN_DPV_MIRROR (the Drive folder on Colab).
     """
+    mirror_root = mirror_root or os.environ.get("PINN_DPV_MIRROR")
+    shrink = dict(REHEARSAL) if rehearsal else {}
+    shrink.update(overrides or {})
     token = persistence.github_token() if push else None
     remote_url = f"https://github.com/{REPO}.git" if push and token else None
     releases = persistence.GitHubReleases(REPO, token) if push and token else None
     out = []
+    progress = Progress(len(family_stages) * len(seeds), "pilot")
     for fs in family_stages:
         for seed in seeds:
-            cfg = pilot_config(fs, seed, **(overrides or {}))
+            cfg = pilot_config(fs, seed, **shrink)
+            if rehearsal:
+                cfg = pilot_config(fs, seed, run_id=f"rehearsal-{cfg.resolved_run_id()}", **shrink)
             out.append(run_one(cfg, root=root, remote_url=remote_url, releases=releases,
-                               mirror_root=mirror_root, token=token))
+                               mirror_root=mirror_root, token=token, progress=progress))
     return out
 
 
 # --- report -------------------------------------------------------------------------------------
+def budget_rule(by_mark: dict, r_pp: float):
+    """Experiments v01, E0: the first iteration mark after which mean validation e_PCE
+    drops by no more than r/2 per 1000 iterations; None if it is still dropping faster
+    at the last mark (the cap did not suffice)."""
+    marks = sorted((int(k), float(v)) for k, v in by_mark.items())
+    for (m0, e0), (m1, e1) in zip(marks, marks[1:]):
+        if (e0 - e1) / (m1 - m0) * 1000.0 <= r_pp / 2:
+            return m0
+    return None
+
+
 def run_report():
     """Local step: the E0 tables from the sigma JSONs and the pilot summaries."""
     rows = {}
@@ -221,7 +305,20 @@ def run_report():
     for path in sorted(glob.glob(os.path.join(PILOT_DIR, "*", "summary.json"))):
         with open(path) as f:
             s = json.load(f)
-        runs.append({k: s[k] for k in ("run_id", "family_stage", "seed", "seconds", "mean_e_pce_val",
-                                       "mean_e_pce_test", "mean_e_pce_val_by_mark") if k in s})
-    persistence.write_json(REPORT_DIR, "e0.json", {"sigma": sigma_table, "pilot": runs})
-    return {"sigma": sigma_table, "pilot": runs}
+        row = {k: s[k] for k in ("run_id", "family_stage", "seed", "seconds", "mean_e_pce_val",
+                                 "mean_e_pce_test", "mean_e_pce_val_by_mark") if k in s}
+        # A rehearsal checks the machinery at a scale that answers nothing about E0.
+        row["rehearsal"] = str(s.get("run_id", "")).startswith("rehearsal-")
+        runs.append(row)
+    budget = {}
+    for fs in sorted({r["family_stage"] for r in runs if not r["rehearsal"]}):
+        marks = [r["mean_e_pce_val_by_mark"] for r in runs
+                 if r["family_stage"] == fs and not r["rehearsal"] and r.get("mean_e_pce_val_by_mark")]
+        if not marks or fs not in sigma_table:
+            continue
+        mean = {k: float(np.mean([m[k] for m in marks if k in m])) for k in marks[0]}
+        budget[fs] = {"mean_e_pce_val_by_mark": mean, "r_pp": sigma_table[fs]["r_pp"],
+                      "iterations": budget_rule(mean, sigma_table[fs]["r_pp"]), "seeds": len(marks)}
+    out = {"sigma": sigma_table, "pilot": runs, "budget": budget}
+    persistence.write_json(REPORT_DIR, "e0.json", out)
+    return out

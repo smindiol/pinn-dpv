@@ -12,7 +12,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from . import physics
+from PINN_DPV import physics
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",

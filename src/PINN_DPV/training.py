@@ -28,7 +28,7 @@ import numpy as np
 import optax
 from scipy.stats import qmc
 
-from . import contacts, data, evaluation, loss, network, persistence, scaling, weighting
+from PINN_DPV import contacts, data, evaluation, loss, network, persistence, scaling, weighting
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",

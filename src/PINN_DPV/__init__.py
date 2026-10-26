@@ -56,7 +56,7 @@ __backend__ = "jax"
 #
 # Example (a repository with no remote service at all still has a ladder):
 #     __levels__ = ["local", "cluster"]
-__levels__: list = []
+__levels__ = ["cpu-local", "kaggle-gpu", "colab-a100"]
 
 # A callable this repository's own code can run, isolated, under this
 # repository's own venv -- named and resolved statically by the forge
@@ -186,7 +186,44 @@ __levels__: list = []
 #             "placement": "local",
 #         },
 #     }
-__steps__: dict = {}
+__steps__ = {
+    # Algorithm A1 (iv)-(v) over every family-stage and seed: output scales,
+    # sigma_i^2 and L_i^floor (Eq. 3, 23) and the reference floor r (Eq. 21).
+    # Read by every training run. Runs on a Kaggle GPU (or inside the Colab
+    # central notebook), never on the operator's laptop, by the operator's choice.
+    "sigma": {
+        "module": "PINN_DPV.steps",
+        "function": "run_sigma",
+        "advances": 1,
+        "reads": [],
+        "produces": ["Results/sigma", "Notebooks/sigma.ipynb"],
+        "placement": "remote",
+        "job": "sigma",
+        "service": "kaggle",
+    },
+    # E0's pilot: E1A and E3A, seeds 0-2, fixed weights, full J-V curve.
+    # Rehearsed small on a Kaggle GPU (rehearsal=True), then run at full scale
+    # by the operator on the Colab A100 with the same notebook.
+    "pilot": {
+        "module": "PINN_DPV.steps",
+        "function": "run_pilot",
+        "advances": 2,
+        "reads": ["Results/sigma"],
+        "produces": ["Results/pilot", "Notebooks/pilot.ipynb"],
+        "placement": "remote",
+        "job": "pilot",
+        "service": "kaggle",
+    },
+    # The E0 tables: sigma ratios, r, and validation e_PCE per iteration mark.
+    "report": {
+        "module": "PINN_DPV.steps",
+        "function": "run_report",
+        "advances": 3,
+        "reads": ["Results/sigma", "Results/pilot"],
+        "produces": ["Results/report", "Notebooks/report.ipynb"],
+        "placement": "local",
+    },
+}
 
 # A target-chosen name mapped to the record it addresses -- a leveled
 # `@record:level <name>` witness in AGREED.md's position section reaches

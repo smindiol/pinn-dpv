@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 import h5py
 import numpy as np
 
-from . import scaling
+from PINN_DPV import scaling
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
@@ -178,17 +178,30 @@ class Device:
 
 
 def dataset_root() -> str:
-    """Root holding the canonical files: $PINN_DPV_DATA, else the sibling dpv-dataset checkout."""
+    """Root holding the canonical files: $PINN_DPV_DATA, else a dataset attached to a Kaggle
+    kernel under /kaggle/input, else the sibling dpv-dataset checkout."""
     env = os.environ.get("PINN_DPV_DATA")
     if env:
         return env
+    import glob
+
+    hits = sorted(glob.glob("/kaggle/input/**/dpv_E1A_b000.h5", recursive=True))
+    if hits:
+        here = os.path.dirname(hits[0])
+        return os.path.dirname(here) if os.path.basename(here) == "s1" else here
     here = os.path.dirname(os.path.abspath(__file__))
     return os.path.normpath(os.path.join(here, "..", "..", "..", "..", "dpv-dataset", "salidas"))
 
 
 def canonical_paths(family_stage: str, root: str | None = None):
+    """The family-stage's files under root, laid out as dPV writes them (<run>/<file>) or
+    flat (<file>), which is how the Kaggle dataset holds them."""
     root = dataset_root() if root is None else root
-    return [os.path.join(root, rel) for rel in CANONICAL_FILES[family_stage]]
+    out = []
+    for rel in CANONICAL_FILES[family_stage]:
+        nested, flat = os.path.join(root, rel), os.path.join(root, os.path.basename(rel))
+        out.append(flat if not os.path.exists(nested) and os.path.exists(flat) else nested)
+    return out
 
 
 def _read_group(g, family, stage, key, profiles):

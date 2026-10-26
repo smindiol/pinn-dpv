@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 from scipy import stats
 
-from . import contacts, loss, physics, scaling
+from PINN_DPV import contacts, loss, physics, scaling
 
 __provenance__ = {
     "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",

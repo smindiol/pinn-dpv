@@ -13,7 +13,10 @@ __implementation__ = {
     # When another skill shares this package, name one revision per
     # document label instead, so each skill reads its own lineage:
     #     "revision": {"proposal": "<filename>", "<label>": "<filename>"},
-    "revision": "",
+    "revision": {
+        "proposal": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+        "experiments": "experiments-protocolo-experimental-del-benchmark-pinn-sobre-dpv-v01.md",
+    },
 
     # What kind of prediction the protocol assumes, over which unit,
     # by which metric and in which direction it is judged, e.g.:
@@ -23,8 +26,15 @@ __implementation__ = {
     #         "metric": "balancedAccuracy",
     #         "direction": "higher",
     #     }
-    "premises": {},
+    "premises": {
+        "prediction": "the power conversion efficiency of each device, derived from the PINN potentials through the J-V curve exactly as dPV computes it",
+        "statisticalUnit": "seed: the mean e_PCE over the test devices of one seed, per family-stage",
+        "metric": "e_PCE, absolute PCE error against dPV in percentage points (IQM over seeds)",
+        "direction": "lower",
+    },
 }
+
+__backend__ = "jax"
 
 # The ordered ladder of rungs a position-section step can reach, entirely
 # in this repository's own words -- the forge holds no rung name of its

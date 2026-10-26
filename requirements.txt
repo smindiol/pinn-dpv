@@ -1,0 +1,10 @@
+# Runtime of the PINN-DPV implementation. CPU wheels locally; on a GPU worker
+# install jax with its CUDA plugin at the same version (jax[cuda12]==0.4.38).
+jax==0.4.38
+jaxlib==0.4.38
+numpy>=1.26,<2.3
+scipy>=1.11
+optax==0.2.4
+chex==0.1.88
+h5py>=3.10
+optuna>=3.6

@@ -1,0 +1,7 @@
+
+# Created by proposal-implementation: the target's own environment
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.implementation/
+*.egg-info/

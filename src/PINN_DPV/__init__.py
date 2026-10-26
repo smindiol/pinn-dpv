@@ -5,6 +5,12 @@ Each module declares the sections and equations it implements in
 test under tests/.
 """
 
+import jax
+
+# r05 Sec. 8: double precision throughout, as in dPV, because delta^2 reaches
+# 1e-9. Set before any array is created by this package.
+jax.config.update("jax_enable_x64", True)
+
 __all__ = []
 
 __implementation__ = {

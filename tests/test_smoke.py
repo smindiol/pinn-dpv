@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import importlib
 
-MODULES = ["PINN_DPV.{{MODULE}}"]
+MODULES = ["PINN_DPV.scaling", "PINN_DPV.data", "PINN_DPV.physics", "PINN_DPV.optics",
+           "PINN_DPV.contacts"]
 REVISION = "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md"
 
 

@@ -3,7 +3,8 @@
 jax==0.4.38
 jaxlib==0.4.38
 numpy>=1.26,<2.3
-scipy>=1.11
+# CODATA 2022 constants (scipy>=1.15): the dataset scales match them exactly
+scipy>=1.15
 optax==0.2.4
 chex==0.1.88
 h5py>=3.10

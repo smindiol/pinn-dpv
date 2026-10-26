@@ -195,3 +195,34 @@ def generation_at(x_hat, family: str, xi: dict, lam=None, P=None):
     phi0 = _photonflux(jnp.asarray(lam), jnp.asarray(P))
     g = jnp.sum(phi0 * alpha_here * jnp.exp(-depth), axis=-1)
     return g / 1e6 / scaling.GRATEDENS
+
+
+def _lds_affine():
+    """Eq. (9) is affine in eta_PL: P_eff = P0 + eta_PL P1."""
+    _, p0 = lds_spectrum(0.0)
+    _, p1 = lds_spectrum(1.0)
+    return p0, p1 - p0
+
+
+def generation_jax(fs, x_hat, lay):
+    """Eq. (10) for a `data.FamilyStage` at x_hat, with `lay = fs.layout(xi_hat)`.
+
+    Vectorizes over leading axes shared by x_hat and the layout; a point on a
+    heterointerface takes the layer behind it, as `generation_at` does.
+    """
+    lam = jnp.asarray(LAMBDA_EFF)
+    if fs.family == "E4":
+        p0, p1 = _lds_affine()
+        P = jnp.asarray(p0) + jnp.asarray(lay["eta"])[..., None] * jnp.asarray(p1)
+    else:
+        P = jnp.asarray(P_IN_EFF)
+    alpha_l = _alpha(fs.mat["A"][None, :], fs.mat["Eg"][None, :], lam[:, None])  # (M, L)
+    thick = lay["thick"]
+    starts = jnp.concatenate([jnp.zeros_like(thick[..., :1]), jnp.cumsum(thick, axis=-1)[..., :-1]], axis=-1)
+    x_cm = x_hat * lay["l_total"]
+    overlap = jnp.clip(x_cm[..., None] - starts, 0.0, thick)
+    depth = jnp.einsum("...l,ml->...m", overlap * scaling.CM, alpha_l)
+    layer = jnp.sum(x_cm[..., None] >= starts * (1 - 1e-12), axis=-1) - 1
+    alpha_here = alpha_l.T[layer]
+    phi0 = _photonflux(lam, P)
+    return jnp.sum(phi0 * alpha_here * jnp.exp(-depth), axis=-1) / 1e6 / scaling.GRATEDENS

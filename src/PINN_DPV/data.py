@@ -270,3 +270,99 @@ def split(keys, seed: int, corners=(), fractions=(0.8, 0.1, 0.1)):
     return {"train": sorted(shuffled[:n_train]),
             "val": sorted(shuffled[n_train:n_train + n_val]),
             "test": sorted(shuffled[n_train + n_val:]) + sorted(corners)}
+
+
+# --- A family-stage as JAX functions of xi_hat ---------------------------------
+_LAYER_MATERIALS = {"E1": [E1_MATERIAL, E1_MATERIAL], "E2": [CDS, CDTE],
+                    "E3": [ETM, PEROVSKITE, HTM], "E4": [CDS, CDTE]}
+_LAYER_THICKNESS = {"E1": ["L_n", "L_p"], "E2": ["L_CdS", "L_CdTe"],
+                    "E3": ["L_ETL", "L_abs", "L_HTL"], "E4": ["L_CdS", "L_CdTe"]}
+#: (parameter name, sign) of each layer's doping; None for an undoped layer.
+_LAYER_DOPING = {"E1": [("Nd_n", 1.0), ("Na_p", -1.0)], "E2": [("Nd_CdS", 1.0), ("Na_CdTe", -1.0)],
+                 "E3": [("Nd_ETM", 1.0), None, ("Na_HTM", -1.0)],
+                 "E4": [("Nd_CdS", 1.0), ("Na_CdTe", -1.0)]}
+
+
+class FamilyStage:
+    """One family-stage: xi_hat in [0, 1]^d to every device quantity the PINN needs, in JAX.
+
+    Built from a dataset file's attributes (`parametros_xi`, `parametros_fijos`),
+    so the ranges are those the reference was sampled with (Sec. 7, Eq. 3).
+    """
+
+    def __init__(self, family: str, stage: str, specs, fixed):
+        import jax.numpy as jnp
+
+        self.family, self.stage = family, stage
+        self.specs, self.fixed = list(specs), dict(fixed)
+        self.names = [s["nombre"] for s in self.specs]
+        self.d = len(self.specs)
+        mats = _LAYER_MATERIALS[family]
+        self.n_layers = len(mats)
+        # Heterointerfaces (Sec. 3): none in E1, whose p-n junction is a doping step in
+        # one material; every layer boundary in E2, E3 and E4.
+        self.n_int = 0 if family == "E1" else self.n_layers - 1
+        #: per-layer dimensionless material (A kept in cm^-1 eV^-1/2), shape (layers,)
+        self.mat = {k: jnp.asarray([m[k] / (1.0 if k == "A" else scaling.UNITS[k]) for m in mats])
+                    for k in MATERIAL_KEYS}
+        self.contacts = contact_velocities(family)
+
+    @classmethod
+    def from_file(cls, path: str):
+        a = file_attrs(path)
+        return cls(a["familia"], a["etapa"], json.loads(a["parametros_xi"]),
+                   json.loads(a["parametros_fijos"]))
+
+    @classmethod
+    def load(cls, family_stage: str, root: str | None = None):
+        return cls.from_file(canonical_paths(family_stage, root)[0])
+
+    def physical(self, xi_hat):
+        """Inverse of Eq. (3) for every parameter; fixed ones keep their nominal value."""
+        import jax.numpy as jnp
+
+        out = {k: jnp.asarray(v, dtype=jnp.float64) for k, v in self.fixed.items()}
+        for j, s in enumerate(self.specs):
+            u = xi_hat[..., j]
+            if s["escala"] == "log":
+                lo, hi = np.log10(s["min"]), np.log10(s["max"])
+                out[s["nombre"]] = 10.0 ** (lo + u * (hi - lo))
+            else:
+                out[s["nombre"]] = s["min"] + u * (s["max"] - s["min"])
+        return out
+
+    def layout(self, xi_hat):
+        """Thicknesses (cm), signed dopings (dimensionless) and interface x_hat_m of a device."""
+        import jax.numpy as jnp
+
+        xi = self.physical(xi_hat)
+        thick = jnp.stack([jnp.broadcast_to(xi[n], jnp.shape(xi_hat)[:-1])
+                           for n in _LAYER_THICKNESS[self.family]], axis=-1)
+        dops = []
+        for spec in _LAYER_DOPING[self.family]:
+            if spec is None:
+                dops.append(jnp.zeros(jnp.shape(xi_hat)[:-1]))
+            else:
+                dops.append(spec[1] * xi[spec[0]] / scaling.DENSITY)
+        ndop = jnp.stack(dops, axis=-1)
+        total = jnp.sum(thick, axis=-1)
+        x_layers = jnp.cumsum(thick, axis=-1)[..., :-1] / total[..., None]
+        x_m = x_layers if self.n_int else x_layers[..., :0]
+        eta = xi.get("eta_PL", None)
+        return {"thick": thick, "ndop": ndop, "l_total": total, "x_layers": x_layers,
+                "x_m": x_m, "delta": scaling.LENGTH / total, "eta": eta}
+
+    def layer_of(self, x_hat, x_layers):
+        """Layer index at x_hat: the number of layer boundaries at or before it."""
+        import jax.numpy as jnp
+
+        return jnp.sum(x_hat[..., None] >= x_layers, axis=-1).astype(jnp.int32)
+
+    def material(self, layer, ndop):
+        """Dimensionless material dict at a layer index, with that layer's doping."""
+        import jax.numpy as jnp
+
+        layer = jnp.asarray(layer)
+        m = {k: v[layer] for k, v in self.mat.items()}
+        m["Ndop"] = jnp.take_along_axis(ndop, layer[..., None], axis=-1)[..., 0]
+        return m

@@ -1,0 +1,138 @@
+"""The PINN: a tanh perceptron with one cusp input per heterointerface, and its potentials.
+
+Sec. 8: 6 hidden layers of 512 tanh units, Kaiming initialization, input
+(x_hat, xi_hat) in [0, 1]^{1 + d}, output u_hat in R^3.
+Eq. (24): u_hat(x_hat, xi_hat) = U(x_hat, rho_1, ..., rho_Nint, xi_hat) with
+rho_m = |x_hat - x_hat_m(xi)|, so u_hat is continuous at x_hat_m and its x-derivative
+may jump by 2 dU/drho_m; the one-sided traces are dU/dx +- dU/drho_m, exact by
+automatic differentiation.
+Fourier variant (Sec. 8): x_hat alone is projected on random sinusoidal features
+before the first layer; rho_m and xi_hat enter unprojected.
+Gummel alternation (Sec. 6, strategy 6): two networks, one for phi and one for
+(phi_n, phi_p).
+The potentials follow Eq. (3): phi with the hard Dirichlet constraint, phi_n and
+phi_p affine between their training extremes; at equilibrium phi_n = phi_p = 0 hard.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from . import scaling
+
+__provenance__ = {
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "sections": ["2", "6", "8"],
+    "equations": ["3", "24"],
+    "invariants": [
+        "network_continuous_at_interfaces",
+        "cusp_trace_jump_is_twice_drho",
+        "plain_network_when_no_interface",
+        "kaiming_initialization_scale",
+        "potentials_meet_dirichlet_for_any_weights",
+    ],
+}
+
+
+@dataclass(frozen=True)
+class NetConfig:
+    d_xi: int
+    n_int: int
+    width: int = 512
+    depth: int = 6
+    fourier_features: int = 0  # 0: base architecture; >0: Fourier variant on x_hat
+    fourier_scale: float = 1.0
+    split: bool = False  # True: Gummel alternation, separate phi and (phi_n, phi_p) networks
+
+    @property
+    def n_in(self) -> int:
+        nx = 2 * self.fourier_features if self.fourier_features else 1
+        return nx + self.n_int + self.d_xi
+
+
+def _mlp_init(key, sizes):
+    """Kaiming (He) normal weights, std sqrt(2 / fan_in); zero biases."""
+    params = []
+    for k, (m, n) in zip(jax.random.split(key, len(sizes) - 1), zip(sizes[:-1], sizes[1:])):
+        params.append({"W": jax.random.normal(k, (m, n)) * jnp.sqrt(2.0 / m), "b": jnp.zeros(n)})
+    return params
+
+
+def _mlp_apply(params, z):
+    for layer in params[:-1]:
+        z = jnp.tanh(z @ layer["W"] + layer["b"])
+    return z @ params[-1]["W"] + params[-1]["b"]
+
+
+def init(key, cfg: NetConfig):
+    """Parameters: {"phi": mlp, "qf": mlp} when split, else {"all": mlp}; plus Fourier B if any."""
+    hidden = [cfg.width] * cfg.depth
+    k_net, k_net2, k_b = jax.random.split(key, 3)
+    params = {}
+    if cfg.split:
+        params["phi"] = _mlp_init(k_net, [cfg.n_in] + hidden + [1])
+        params["qf"] = _mlp_init(k_net2, [cfg.n_in] + hidden + [2])
+    else:
+        params["all"] = _mlp_init(k_net, [cfg.n_in] + hidden + [3])
+    if cfg.fourier_features:
+        # Frozen by the training loop (it never updates "B"): Tancik et al. random features.
+        params["B"] = jax.random.normal(k_b, (cfg.fourier_features,)) * cfg.fourier_scale
+    return params
+
+
+def _features(params, cfg, x_hat, rho, xi_hat):
+    if cfg.fourier_features:
+        arg = 2.0 * jnp.pi * jax.lax.stop_gradient(params["B"]) * x_hat
+        fx = jnp.concatenate([jnp.sin(arg), jnp.cos(arg)])
+    else:
+        fx = jnp.atleast_1d(x_hat)
+    return jnp.concatenate([fx, jnp.atleast_1d(rho), xi_hat])
+
+
+def raw(params, cfg: NetConfig, x_hat, rho, xi_hat):
+    """U(x_hat, rho, xi_hat) in R^3 for explicit cusp inputs rho (shape (n_int,))."""
+    z = _features(params, cfg, x_hat, rho, xi_hat)
+    if cfg.split:
+        return jnp.concatenate([_mlp_apply(params["phi"], z), _mlp_apply(params["qf"], z)])
+    return _mlp_apply(params["all"], z)
+
+
+def u_hat(params, cfg: NetConfig, x_hat, xi_hat, x_m, side=None):
+    """u_hat of Eq. (24) at one point.
+
+    `side` selects a one-sided trace at an interface: None uses rho_m = |x - x_m|
+    for every m; an integer array of +1/-1 per interface fixes rho_m = side_m (x - x_m),
+    so that d/dx gives dU/dx + side_m dU/drho_m exactly at x = x_m.
+    """
+    diff = x_hat - x_m
+    rho = jnp.abs(diff) if side is None else side * diff
+    return raw(params, cfg, x_hat, rho, xi_hat)
+
+
+@dataclass(frozen=True)
+class OutputScales:
+    """D_phi and the extremes of phi_n, phi_p of Eq. (3), from the training subset."""
+    d_phi: float
+    y_min: tuple
+    y_max: tuple
+
+
+def potentials(params, cfg: NetConfig, scales: OutputScales, x_hat, xi_hat, x_m,
+               phi_eq0, phi_eq1, v_tilde, equilibrium=False, side=None):
+    """(phi, phi_n, phi_p) of Eq. (3) at one point; phi_n = phi_p = 0 hard at equilibrium."""
+    u = u_hat(params, cfg, x_hat, xi_hat, x_m, side)
+    phi = scaling.phi_from_output(x_hat, u[0], phi_eq0, phi_eq1, v_tilde, scales.d_phi)
+    if equilibrium:
+        return phi, 0.0 * phi, 0.0 * phi
+    phi_n = scaling.quasi_fermi_from_output(u[1], scales.y_min[0], scales.y_max[0])
+    phi_p = scaling.quasi_fermi_from_output(u[2], scales.y_min[1], scales.y_max[1])
+    return phi, phi_n, phi_p
+
+
+def count_parameters(params) -> int:
+    return int(sum(np.prod(a.shape) for k, a in jax.tree_util.tree_leaves_with_path(params)
+                   if "B" not in jax.tree_util.keystr(k)))

@@ -168,7 +168,11 @@ def prepare(cfg: TrainConfig, sigma: dict, root=None) -> Setup:
     if cfg.loss_form not in loss.LOSS_FORMS or cfg.qf_start not in ("equilibrium", "random"):
         raise ValueError(f"unknown loss_form {cfg.loss_form!r} or qf_start {cfg.qf_start!r}")
     sc = sigma["scales"]
-    scales = network.OutputScales(sc["D_phi"], tuple(sc["Y_min"]), tuple(sc["Y_max"]))
+    # The equilibrium of A2 step 1 (phi_n = phi_p = 0) is part of what is trained, so the
+    # extremes of Eq. (3) include it: the sweep alone can leave Y_max at -1e-8 for phi_p
+    # (Kaggle smoke, E1A), which the equilibrium start of step 2 cannot represent.
+    scales = network.OutputScales(sc["D_phi"], tuple(min(v, 0.0) for v in sc["Y_min"]),
+                                  tuple(max(v, 0.0) for v in sc["Y_max"]))
     k_max = max(len(d.V) for d in train)
     if cfg.max_voltages:
         k_max = min(k_max, cfg.max_voltages)

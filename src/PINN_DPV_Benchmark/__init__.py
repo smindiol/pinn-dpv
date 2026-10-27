@@ -87,10 +87,14 @@ __benchmark__ = {
     #         "dimensions": {"accuracy": "higher", "seconds": "lower"},
     #     }
     "report": {
-        "renderers": ["PINN_DPV.steps.run_report"],
-        "conclusions": ["PINN_DPV.steps.budget_rule"],
+        "renderers": ["PINN_DPV.steps.run_report", "PINN_DPV.steps.screen_table"],
+        "conclusions": ["PINN_DPV.steps.budget_rule", "PINN_DPV.steps.screen_conclusion"],
         "figures": [],
         "dimensions": {"e_pce_pp": "lower", "seconds": "lower"},
+        # Experiments v02, E0 (ii): the loss terms of r06 Eq. (15) and the dimension that
+        # carries each one's share of the gradient norm (training.gradient_shares).
+        "components": {"terms": ["Poisson", "n", "p", "BCn", "BCp", "int_phi", "int_n", "int_p", "dat"],
+                       "share": "grad_shares"},
     },
 
     # What a run split across shards has to say about itself: the axis a

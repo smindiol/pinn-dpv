@@ -822,3 +822,18 @@ def test_no_sigma_ablation_uses_unit_scales() -> None:
     comps = loss.components(p, setup.prob, batch, 0.0, equilibrium=True)
     want = loss.compress(jnp.stack([comps[c] for c in names]), "log1p")
     assert float(jnp.max(jnp.abs(scaled(p, batch, 0.0) - want))) <= 1e-12 * float(jnp.max(want))
+
+
+def test_screen_conclusion_follows_rows() -> None:
+    """Experiments v02, E0 success criterion: the chosen configuration is the lowest validation e_PCE
+    among runs meeting (i)-(iii); swapping the e_PCE values changes the choice, and a control that
+    violates (i) is detected."""
+    good = dict(h_i_initial_bounded=True, h_ii_no_dominant_gradient=True, h_iii_finite_and_nonzero=True)
+    rows = [dict(run_id="base", overrides={"family_stage": "E1A"}, mean_e_pce_val=0.5, **good),
+            dict(run_id="ff10", overrides={"family_stage": "E1A", "fourier_scale": 10.0}, mean_e_pce_val=0.2, **good),
+            dict(run_id="ctrl", overrides={"family_stage": "E1A", "loss_form": "linear"}, mean_e_pce_val=0.1,
+                 **dict(good, h_i_initial_bounded=False))]
+    c = steps.screen_conclusion(rows)
+    assert c["chosen"] == "ff10" and c["base_holds"] == {"E1A": True} and c["a_control_violates"]
+    rows[0]["mean_e_pce_val"], rows[1]["mean_e_pce_val"] = 0.2, 0.5
+    assert steps.screen_conclusion(rows)["chosen"] == "base"

@@ -36,6 +36,7 @@ __provenance__ = {
         "budget_rule_stops_where_drop_falls_below_half_r",
         "initial_component_spread_is_log10_max_over_min",
         "screen_verdicts_follow_caps",
+        "screen_conclusion_follows_rows",
         "batch_rule_halves_only_on_out_of_memory",
     ],
 }
@@ -498,6 +499,34 @@ def smoke_screen(group: str, tests: bool = True):
     first.update(adam_iters=20, lbfgs_iters=2, device_pool=40, max_voltages=2, grad_share_marks=(1, 10))
     result["screen"] = run_screen(group, groups={group: [first]})
     return result
+
+
+def screen_table(screen_dir=SCREEN_DIR):
+    """E0 screening rows from every returned screen/<group>.json, sorted by validation e_PCE."""
+    rows = []
+    for path in sorted(glob.glob(os.path.join(screen_dir, "*.json"))):
+        with open(path) as f:
+            rec = json.load(f)
+        if "rows" in rec:
+            rows += [dict(r, group=rec["group"]) for r in rec["rows"]]
+    return sorted(rows, key=lambda r: (r.get("error") is not None, r.get("mean_e_pce_val", float("inf"))))
+
+
+def screen_conclusion(rows) -> dict:
+    """E0's success criterion (experiments v02) computed from the screening rows."""
+    ok = [r for r in rows if "error" not in r]
+    passes = [r for r in ok if r["h_i_initial_bounded"] and r["h_ii_no_dominant_gradient"]
+              and r["h_iii_finite_and_nonzero"]]
+    base = {r["overrides"]["family_stage"]: r for r in ok if set(r["overrides"]) == {"family_stage"}}
+    controls = [r for r in ok if r["overrides"].get("loss_form") == "linear"
+                or r["overrides"].get("qf_start") == "random"]
+    best = min(passes, key=lambda r: r["mean_e_pce_val"]) if passes else None
+    return {"base_holds": {fs: r["h_i_initial_bounded"] and r["h_ii_no_dominant_gradient"]
+                           and r["h_iii_finite_and_nonzero"] for fs, r in base.items()},
+            "a_control_violates": any(not (r["h_i_initial_bounded"] and r["h_ii_no_dominant_gradient"])
+                                      for r in controls),
+            "chosen": best["run_id"] if best else None,
+            "n_runs": len(rows), "n_failed": len(rows) - len(ok), "n_passing": len(passes)}
 
 
 # --- report -------------------------------------------------------------------------------------

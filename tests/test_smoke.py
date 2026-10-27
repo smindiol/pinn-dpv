@@ -18,7 +18,7 @@ MODULES = ["PINN_DPV.scaling", "PINN_DPV.data", "PINN_DPV.physics", "PINN_DPV.op
            "PINN_DPV.contacts", "PINN_DPV.network", "PINN_DPV.interfaces", "PINN_DPV.loss",
            "PINN_DPV.weighting", "PINN_DPV.persistence", "PINN_DPV.evaluation", "PINN_DPV.training",
            "PINN_DPV.search", "PINN_DPV.b0", "PINN_DPV.steps"]
-REVISION = "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md"
+REVISION = "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md"
 
 
 def _unanswered(value: str) -> bool:

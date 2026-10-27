@@ -27,7 +27,7 @@ import numpy as np
 from PINN_DPV import data, scaling
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md",
     "sections": ["4"],
     "equations": ["9", "10"],
     "invariants": [
@@ -109,7 +109,7 @@ P_IN_EFF = np.array([
     0.023219685557830824, 0.009917010541730737
 ])
 
-# LDS layer (r08 Sec. 4 and 7; kalytchuk2014)
+# LDS layer (r09 Sec. 4 and 7; kalytchuk2014)
 LDS_A_UV = 0.95
 LDS_WINDOW_NM = (300.0, 400.0)
 LDS_ETA_GEOM = 0.87

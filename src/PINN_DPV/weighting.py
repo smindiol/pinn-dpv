@@ -1,7 +1,7 @@
 """Weighting strategies for the components of Eq. (15).
 
 Every rule acts on the compressed components ell_i = log(1 + L_i / sigma_i^2) of
-Eq. (15) (r08: "cada L_i se lee como ell_i") and returns the weights lambda_i of
+Eq. (15) (r09: "cada L_i se lee como ell_i") and returns the weights lambda_i of
 the loss sum_i lambda_i ell_i; with the linear control form, ell_i = L_i / sigma_i^2.
 Fixed (baseline): lambda_i = 1.
 NTK, Eq. (16): K_i = || d sqrt(s_i) / d theta ||_2^2, lambda_i <- K_bar / K_i with
@@ -25,7 +25,7 @@ import jax
 import jax.numpy as jnp
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md",
     "sections": ["6"],
     "equations": ["16", "17", "18"],
     "invariants": [

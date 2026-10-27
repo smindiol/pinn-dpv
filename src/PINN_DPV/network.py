@@ -1,4 +1,4 @@
-"""The PINN: a tanh perceptron with one cusp input per heterointerface, and its potentials.
+"""The PINN: a perceptron (tanh or tg activation) with one cusp input per heterointerface, and its potentials.
 
 Sec. 8: 6 hidden layers of 512 tanh units, Kaiming initialization, input
 (x_hat, xi_hat) in [0, 1]^{1 + d}, output u_hat in R^3.
@@ -6,13 +6,16 @@ Eq. (24): u_hat(x_hat, xi_hat) = U(x_hat, rho_1, ..., rho_Nint, xi_hat) with
 rho_m = |x_hat - x_hat_m(xi)|, so u_hat is continuous at x_hat_m and its x-derivative
 may jump by 2 dU/drho_m; the one-sided traces are dU/dx +- dU/drho_m, exact by
 automatic differentiation.
-Fourier features (Sec. 8, the base architecture in r08; the plain perceptron is the
+Fourier features (Sec. 8, the base architecture in r09; the plain perceptron is the
 control): x_hat alone is projected on sin/cos(2 pi b_l x_hat) with random fixed b_l
 before the first layer; rho_m and xi_hat enter unprojected.
 Voltage as input (Sec. 8 variant): one network for the whole curve receives
 V_hat = V / V_max in [0, 1] unprojected; every input is on a comparable scale:
 x_hat, xi_hat, rho_m, V_hat in [0, 1], the Fourier features in [-1, 1].
-Zero start of u_phi (A2 step 1, r08): the last-layer row of u_phi is zeroed with zero
+Tools against spectral bias (r09 Sec. 8), combined as the protocol fixes: Fourier
+features on x_hat, the activation tanh(z) exp(-z^2/2) of zhang2025 instead of tanh
+("tg"), and one network per output u_phi, u_phi_n, u_phi_p as in riganti2025 (DDNet).
+Zero start of u_phi (A2 step 1, r09): the last-layer row of u_phi is zeroed with zero
 bias, so Eq. (3) gives phi = phi_lin at initialization, whatever the features.
 Equilibrium start (A2 step 2): the last-layer rows of u_phi_n, u_phi_p are zeroed
 and their bias set to -Y_min / (Y_max - Y_min), so that phi_n = phi_p = 0.
@@ -33,7 +36,7 @@ import numpy as np
 from PINN_DPV import scaling
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md",
     "sections": ["2", "6", "8"],
     "equations": ["3", "24"],
     "invariants": [
@@ -46,6 +49,8 @@ __provenance__ = {
         "phi_zero_start_gives_linear_profile",
         "voltage_input_on_unit_interval",
         "no_cusp_ablation_is_smooth_at_interfaces",
+        "tg_activation_is_tanh_times_gaussian",
+        "separate_networks_one_per_output",
     ],
 }
 
@@ -60,7 +65,9 @@ class NetConfig:
     fourier_scale: float = 1.0
     split: bool = False  # True: Gummel alternation, separate phi and (phi_n, phi_p) networks
     v_max: float = 0.0  # > 0: voltage-as-input variant, V_hat = V_tilde / v_max (V_tilde units)
-    cusp: bool = True  # False: experiments v04 E6 ablation, no rho_m inputs (Eq. 24 removed)
+    cusp: bool = True  # False: experiments v05 E6 ablation, no rho_m inputs (Eq. 24 removed)
+    activation: str = "tanh"  # "tg": tanh(z) exp(-z^2/2), zhang2025 (r09 Sec. 8)
+    separate: bool = False  # True: one network per output, riganti2025 (r09 Sec. 8)
 
     @property
     def v_input(self) -> bool:
@@ -80,18 +87,37 @@ def _mlp_init(key, sizes):
     return params
 
 
-def _mlp_apply(params, z):
+ACTIVATIONS = ("tanh", "tg")
+
+
+def activation(name: str, z):
+    """tanh, or tg(z) = tanh(z) exp(-z^2/2) of zhang2025 (r09 Sec. 8)."""
+    if name == "tanh":
+        return jnp.tanh(z)
+    if name == "tg":
+        return jnp.tanh(z) * jnp.exp(-0.5 * z * z)
+    raise ValueError(f"unknown activation {name!r}; expected one of {ACTIVATIONS}")
+
+
+def _mlp_apply(params, z, act="tanh"):
     for layer in params[:-1]:
-        z = jnp.tanh(z @ layer["W"] + layer["b"])
+        z = activation(act, z @ layer["W"] + layer["b"])
     return z @ params[-1]["W"] + params[-1]["b"]
 
 
 def init(key, cfg: NetConfig):
-    """Parameters: {"phi": mlp, "qf": mlp} when split, else {"all": mlp}; plus Fourier B if any."""
+    """Parameters: {"phi": mlp, "qf": [mlp_n, mlp_p]} when separate, {"phi": mlp, "qf": mlp}
+    when split, else {"all": mlp}; plus Fourier B if any."""
+    if cfg.activation not in ACTIVATIONS:
+        raise ValueError(f"unknown activation {cfg.activation!r}; expected one of {ACTIVATIONS}")
     hidden = [cfg.width] * cfg.depth
-    k_net, k_net2, k_b = jax.random.split(key, 3)
+    k_net, k_net2, k_b, k_net3 = jax.random.split(key, 4)
     params = {}
-    if cfg.split:
+    if cfg.separate:
+        params["phi"] = _mlp_init(k_net, [cfg.n_in] + hidden + [1])
+        params["qf"] = [_mlp_init(k_net2, [cfg.n_in] + hidden + [1]),
+                        _mlp_init(k_net3, [cfg.n_in] + hidden + [1])]
+    elif cfg.split:
         params["phi"] = _mlp_init(k_net, [cfg.n_in] + hidden + [1])
         params["qf"] = _mlp_init(k_net2, [cfg.n_in] + hidden + [2])
     else:
@@ -117,9 +143,13 @@ def _features(params, cfg, x_hat, rho, xi_hat, v_hat=0.0):
 def raw(params, cfg: NetConfig, x_hat, rho, xi_hat, v_hat=0.0):
     """U(x_hat, rho, xi_hat[, V_hat]) in R^3 for explicit cusp inputs rho (shape (n_int,))."""
     z = _features(params, cfg, x_hat, rho, xi_hat, v_hat)
+    a = cfg.activation
+    if cfg.separate:
+        return jnp.concatenate([_mlp_apply(params["phi"], z, a), _mlp_apply(params["qf"][0], z, a),
+                                _mlp_apply(params["qf"][1], z, a)])
     if cfg.split:
-        return jnp.concatenate([_mlp_apply(params["phi"], z), _mlp_apply(params["qf"], z)])
-    return _mlp_apply(params["all"], z)
+        return jnp.concatenate([_mlp_apply(params["phi"], z, a), _mlp_apply(params["qf"], z, a)])
+    return _mlp_apply(params["all"], z, a)
 
 
 def u_hat(params, cfg: NetConfig, x_hat, xi_hat, x_m, side=None, v_hat=0.0):
@@ -156,14 +186,14 @@ def potentials(params, cfg: NetConfig, scales: OutputScales, x_hat, xi_hat, x_m,
 
 
 def phi_zero_start(params, cfg: NetConfig):
-    """A2 step 1 (r08): u_phi = 0 at every point, so Eq. (3) gives phi = phi_lin.
+    """A2 step 1 (r09): u_phi = 0 at every point, so Eq. (3) gives phi = phi_lin.
 
     The last-layer weights and bias of u_phi are zeroed; the hidden layers and the
     Fourier features keep their random initialization and receive gradient from the
     second iteration on.
     """
     params = dict(params)
-    if cfg.split:
+    if cfg.split or cfg.separate:
         last = dict(params["phi"][-1])
         last["W"], last["b"] = jnp.zeros_like(last["W"]), jnp.zeros_like(last["b"])
         params["phi"] = params["phi"][:-1] + [last]
@@ -176,7 +206,7 @@ def phi_zero_start(params, cfg: NetConfig):
 
 
 def equilibrium_start(params, cfg: NetConfig, scales: OutputScales):
-    """A2 step 2 (r08): phi_n = phi_p = 0 exactly, the equilibrium solution of step 1.
+    """A2 step 2 (r09): phi_n = phi_p = 0 exactly, the equilibrium solution of step 1.
 
     The last-layer weights of u_phi_n, u_phi_p are zeroed and their biases set to
     -Y_min / (Y_max - Y_min); this needs Y_min <= 0 <= Y_max for both.
@@ -186,7 +216,14 @@ def equilibrium_start(params, cfg: NetConfig, scales: OutputScales):
         raise ValueError(f"equilibrium start needs Y_min <= 0 <= Y_max, got {lo}, {hi}")
     bias = jnp.asarray(-lo / (hi - lo))
     params = dict(params)
-    if cfg.split:
+    if cfg.separate:
+        nets = []
+        for k, net in enumerate(params["qf"]):
+            last = dict(net[-1])
+            last["W"], last["b"] = jnp.zeros_like(last["W"]), bias[k:k + 1]
+            nets.append(net[:-1] + [last])
+        params["qf"] = nets
+    elif cfg.split:
         last = dict(params["qf"][-1])
         last["W"], last["b"] = jnp.zeros_like(last["W"]), bias
         params["qf"] = params["qf"][:-1] + [last]

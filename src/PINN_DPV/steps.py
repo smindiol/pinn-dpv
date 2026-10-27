@@ -27,7 +27,7 @@ import numpy as np
 from PINN_DPV import data, evaluation, loss, persistence, scaling, training
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md",
     "sections": ["7", "8", "9"],
     "equations": ["3", "21", "23"],
     "invariants": [
@@ -245,7 +245,7 @@ def _out_of_memory(exc) -> bool:
 
 
 def _train_with_batch_rule(setup, state, callback, run_dir, models_dir, root, sigma_dir):
-    """Experiments v04 batch rule: N_Q is halved only when the device runs out of memory.
+    """Experiments v05 batch rule: N_Q is halved only when the device runs out of memory.
 
     The run resumes from its last checkpoint with the smaller batch; every change is
     recorded in the state ("batch_events") and reported as a covariate.
@@ -366,9 +366,9 @@ def smoke_pilot(seeds=(0,), max_devices=60):
             "max_log10_spread": max((r["log10_spread"] for r in spread), default=float("nan"))}
 
 
-# --- E0 screening (experiments v04) ----------------------------------------------------------
+# --- E0 screening (experiments v05) ----------------------------------------------------------
 SCREEN_DIR = str(RESULTS_ROOT / "screen")
-#: What every screening run shares: r08's base (Fourier features, log loss, equilibrium
+#: What every screening run shares: r09's base (Fourier features, log loss, equilibrium
 #: start, continuation) at a short budget on a fixed pool of devices, seed 0.
 SCREEN_BASE = dict(seed=0, strategy="fixed", k_s=0, fourier_features=64, fourier_scale=5.0,
                    width=256, depth=4, n_q=512, adam_iters=1000, lbfgs_iters=50, device_pool=400,
@@ -379,10 +379,6 @@ SCREEN_GROUPS = {
                   dict(family_stage="E1A", loss_form="linear"),
                   dict(family_stage="E1A", qf_start="random"),
                   dict(family_stage="E1A", loss_form="linear", qf_start="random")],
-    "arch": [dict(family_stage="E1A", fourier_features=0),
-             dict(family_stage="E1A", fourier_scale=1.0),
-             dict(family_stage="E1A", fourier_scale=10.0),
-             dict(family_stage="E1A", fourier_scale=20.0)],
     "size": [dict(family_stage="E1A", width=128, depth=4),
              dict(family_stage="E1A", width=256, depth=6),
              dict(family_stage="E1A", width=512, depth=4),
@@ -392,18 +388,25 @@ SCREEN_GROUPS = {
                            dict(family_stage="E3A", v_input=True),
                            dict(family_stage="E3A", loss_form="linear", qf_start="random")],
 }
-#: The protocol's four groups, each run as two Kaggle sessions of two runs ("-a", "-b"),
-#: so the 16 runs fit the four accounts' two concurrent sessions in one night. The
-#: halves pair a heavy run with a light one where sizes differ.
+#: Each group above runs as two Kaggle sessions of two runs ("-a", "-b"); the halves pair
+#: a heavy run with a light one where sizes differ.
 _HALVES = {"size": ((0, 3), (1, 2))}
 for _g, _runs in list(SCREEN_GROUPS.items()):
     _a, _b = _HALVES.get(_g, ((0, 1), (2, 3)))
     SCREEN_GROUPS[f"{_g}-a"] = [_runs[i] for i in _a]
     SCREEN_GROUPS[f"{_g}-b"] = [_runs[i] for i in _b]
-# r08 data start (step 0, data only) against the zero start of r08, in E1A and E3A: one session.
+# r09 data start (step 0, data only) against the zero start of r09, in E1A and E3A: one session.
 SCREEN_GROUPS["start"] = [dict(family_stage="E1A", start="data"), dict(family_stage="E3A", start="data")]
+#: Experiments v05: the eight combinations of r09's tools against spectral bias (Fourier
+#: features at scale 5, the activation of zhang2025, one network per output), each with
+#: fixed weights and with BRDR, in E1A; four sessions of four runs, each with two of the
+#: heavier separate-network runs. The Fourier scale sweep follows, on the chosen combination.
+for _w in ("fixed", "brdr"):
+    for _half, _ff in (("a", 0), ("b", 64)):
+        SCREEN_GROUPS[f"arch-{_w}-{_half}"] = [
+            dict(family_stage="E1A", strategy=_w, fourier_features=_ff, activation=_act, separate=_sep)
+            for _act in ("tanh", "tg") for _sep in (False, True)]
 SCREEN_SHARE_CAP = 0.9  # hypothesis (ii): no component above 90 % of the gradient norm
-SCREEN_START_CAP = 10.0  # hypothesis (i): no active s_i above 10 when a regime starts
 
 
 def screen_config(overrides: dict) -> training.TrainConfig:
@@ -413,17 +416,15 @@ def screen_config(overrides: dict) -> training.TrainConfig:
 
 
 def screen_verdicts(summary: dict) -> dict:
-    """E0's three hypotheses for one run, from its summary (experiments v04).
+    """E0's hypotheses (ii) and (iii) for one run, from its summary (experiments v05; v05
+    removed hypothesis (i) on the initial scale of the components).
 
     (ii) is read only in regimes with at least two active components: with one, its share
     is 1 by definition. (iii) counts exact zeros after the first iteration of a regime.
     """
-    starts = [max(c["s"].values()) for c in summary.get("initial_components", []) if c["s"]]
     early = [max(g["share"]) for g in summary.get("grad_shares", [])
              if g["it"] <= 500 and len(g["share"]) >= 2]
-    return {"max_initial_s": max(starts) if starts else float("nan"),
-            "h_i_initial_bounded": bool(starts) and max(starts) <= SCREEN_START_CAP,
-            "max_early_grad_share": max(early) if early else float("nan"),
+    return {"max_early_grad_share": max(early) if early else float("nan"),
             "h_ii_no_dominant_gradient": bool(early) and max(early) <= SCREEN_SHARE_CAP,
             "h_iii_finite_and_nonzero": summary.get("nonfinite", 1) == 0 and summary.get("zero_components", 1) == 0}
 
@@ -431,7 +432,7 @@ def screen_verdicts(summary: dict) -> dict:
 def run_screen(group: str, push: bool = False, groups=None):
     """Remote step (Kaggle GPU): one screening group, its runs one after another, resumable.
 
-    sigma is recomputed on the same device pool the runs split (SG floor, r08 Eq. 23),
+    sigma is recomputed on the same device pool the runs split (SG floor, r09 Eq. 23),
     so sigma never sees a validation or test device. Writes screen/<group>.json.
     """
     plan = (groups or SCREEN_GROUPS)[group]
@@ -488,10 +489,17 @@ def selftest(paths=("tests/test_invariants_model.py",)) -> dict:
     import sys
 
     env = dict(os.environ, PYTHONPATH=str(REPO_ROOT / "src"), XLA_PYTHON_CLIENT_PREALLOCATE="false")
-    proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *paths],
-                          cwd=str(REPO_ROOT), env=env, capture_output=True, text=True)
-    tail = (proc.stdout + proc.stderr)[-6000:]
-    print(tail, flush=True)
+    # One line per test as it finishes, so the session log shows progress (the model tests
+    # compile a network each and take about 20 minutes together on a T4).
+    proc = subprocess.Popen([sys.executable, "-u", "-m", "pytest", "-v", "-p", "no:cacheprovider", *paths],
+                            cwd=str(REPO_ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    lines = []
+    for line in proc.stdout:
+        print("[selftest] " + line, end="", flush=True)
+        lines.append(line)
+    proc.wait()
+    tail = "".join(lines)[-6000:]
     out = {"returncode": proc.returncode, "tail": tail}
     persistence.write_json(SCREEN_DIR, "selftest.json", out)
     return out
@@ -519,20 +527,41 @@ def screen_table(screen_dir=SCREEN_DIR):
     return sorted(rows, key=lambda r: (r.get("error") is not None, r.get("mean_e_pce_val", float("inf"))))
 
 
+def _tools(overrides: dict) -> tuple:
+    """(Fourier, activation, separate) of a screening run: r09's tools against spectral bias."""
+    ff = overrides.get("fourier_features", SCREEN_BASE["fourier_features"])
+    return bool(ff), overrides.get("activation", "tanh"), bool(overrides.get("separate", False))
+
+
 def screen_conclusion(rows) -> dict:
-    """E0's success criterion (experiments v04) computed from the screening rows."""
+    """E0's success criterion (experiments v05) computed from the screening rows.
+
+    The combination of tools is the lowest mean validation e_PCE over fixed weights and
+    BRDR among the combinations meeting (ii) and (iii) with both weightings.
+    """
     ok = [r for r in rows if "error" not in r]
-    passes = [r for r in ok if r["h_i_initial_bounded"] and r["h_ii_no_dominant_gradient"]
-              and r["h_iii_finite_and_nonzero"]]
+
+    def holds(r):
+        return r["h_ii_no_dominant_gradient"] and r["h_iii_finite_and_nonzero"]
+
+    passes = [r for r in ok if holds(r)]
     base = {r["overrides"]["family_stage"]: r for r in ok if set(r["overrides"]) == {"family_stage"}}
     controls = [r for r in ok if r["overrides"].get("loss_form") == "linear"
                 or r["overrides"].get("qf_start") == "random"]
     best = min(passes, key=lambda r: r["mean_e_pce_val"]) if passes else None
-    return {"base_holds": {fs: r["h_i_initial_bounded"] and r["h_ii_no_dominant_gradient"]
-                           and r["h_iii_finite_and_nonzero"] for fs, r in base.items()},
-            "a_control_violates": any(not (r["h_i_initial_bounded"] and r["h_ii_no_dominant_gradient"])
-                                      for r in controls),
+    combos = {}
+    for r in ok:
+        if "activation" in r["overrides"]:
+            combos.setdefault(_tools(r["overrides"]), {})[r["overrides"].get("strategy", "fixed")] = r
+    means = {t: (by["fixed"]["mean_e_pce_val"] + by["brdr"]["mean_e_pce_val"]) / 2
+             for t, by in combos.items()
+             if set(by) >= {"fixed", "brdr"} and holds(by["fixed"]) and holds(by["brdr"])}
+    tools = min(means, key=means.get) if means else None
+    return {"base_holds": {fs: holds(r) for fs, r in base.items()},
+            "a_control_violates": any(not holds(r) for r in controls),
             "chosen": best["run_id"] if best else None,
+            "chosen_tools": dict(zip(("fourier", "activation", "separate"), tools)) if tools else None,
+            "tools_mean_e_pce_val": {"/".join(map(str, t)): v for t, v in means.items()},
             "n_runs": len(rows), "n_failed": len(rows) - len(ok), "n_passing": len(passes)}
 
 

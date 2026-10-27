@@ -16,7 +16,7 @@ iteration), so a resumed run repeats the uninterrupted one exactly.
 The L-BFGS stage of a voltage uses one fixed collocation batch, because its line
 search needs one fixed objective.
 
-r08: the loss is sum_i lambda_i log(1 + s_i), s_i = L_i / sigma_i^2 (`loss_form`
+r09: the loss is sum_i lambda_i log(1 + s_i), s_i = L_i / sigma_i^2 (`loss_form`
 "linear" keeps the previous linear sum as E0's control), and every weighting strategy acts on
 ell_i = log(1 + s_i). Entering V_0 the quasi-Fermi outputs start at the
 equilibrium (`qf_start`, "random" is E0's control). The voltage-as-input variant
@@ -40,7 +40,7 @@ from scipy.stats import qmc
 from PINN_DPV import contacts, data, evaluation, loss, network, persistence, scaling, weighting
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md",
     "sections": ["6", "8"],
     "equations": ["15", "16", "17", "18"],
     "invariants": [
@@ -81,14 +81,16 @@ class TrainConfig:
     device_pool: int | None = None  # E0 screening: the first N devices, split as sigma splits them
     fixed_lambdas: dict | None = None  # TPE's chosen weights
     eval_marks: tuple = ()  # Adam iterations at which validation devices are also evaluated (E0)
-    loss_form: str = "log1p"  # r08 Eq. (15); "linear": the previous linear sum, E0's control
-    qf_start: str = "equilibrium"  # r08 A2 step 2; "random": the previous random start, E0's control
-    start: str = "zero"  # r08 A2 steps 1-2; "data": r08 step 0, a data-only fit at each regime start
+    loss_form: str = "log1p"  # r09 Eq. (15); "linear": the previous linear sum, E0's control
+    qf_start: str = "equilibrium"  # r09 A2 step 2; "random": the previous random start, E0's control
+    start: str = "zero"  # r09 A2 steps 1-2; "data": r09 step 0, a data-only fit at each regime start
     pretrain_iters: int = 500  # step 0 Adam iterations per regime (start == "data")
     pretrain_nodes: int = 128  # mesh nodes per device and iteration, resampled (start == "data")
-    v_input: bool = False  # r08 Sec. 8 variant: one network for the whole curve
-    cusp: bool = True  # experiments v04 E6: False drops the rho_m inputs of Eq. (24)
-    sigma_scale: bool = True  # experiments v04 E6: False sets sigma_i = 1 (no Eq. 23 scale)
+    v_input: bool = False  # r09 Sec. 8 variant: one network for the whole curve
+    activation: str = "tanh"  # r09 Sec. 8: "tg", tanh(z) exp(-z^2/2) of zhang2025
+    separate: bool = False  # r09 Sec. 8: one network per output, riganti2025
+    cusp: bool = True  # experiments v05 E6: False drops the rho_m inputs of Eq. (24)
+    sigma_scale: bool = True  # experiments v05 E6: False sets sigma_i = 1 (no Eq. 23 scale)
     grad_share_marks: tuple = (1, 100, 200, 300, 400, 500)
     run_id: str = ""
 
@@ -96,6 +98,8 @@ class TrainConfig:
         if self.run_id:
             return self.run_id
         arch = f"ff{self.fourier_features}x{self.fourier_scale:g}" if self.fourier_features else "mlp"
+        arch += "" if self.activation == "tanh" else f"-{self.activation}"
+        arch += "-sep" if self.separate else ""
         dat = f"ks{self.k_s}" if self.k_s else "pure"
         extra = "-vin" if self.v_input else ""
         extra += "" if self.cusp else "-nocusp"
@@ -186,7 +190,8 @@ def prepare(cfg: TrainConfig, sigma: dict, root=None) -> Setup:
     v_max = contacts.DV * (k_max - 1) / scaling.ENERGY if cfg.v_input else 0.0
     net = network.NetConfig(d_xi=fs.d, n_int=fs.n_int, width=cfg.width, depth=cfg.depth,
                             fourier_features=cfg.fourier_features, fourier_scale=cfg.fourier_scale,
-                            split=cfg.strategy == "gummel", v_max=v_max, cusp=cfg.cusp)
+                            split=cfg.strategy == "gummel", v_max=v_max, cusp=cfg.cusp,
+                            activation=cfg.activation, separate=cfg.separate)
     prob = loss.Problem(fs=fs, cfg=net, scales=scales, sigma2=dict(sigma["sigma2"]))
     setup = Setup(cfg, fs, prob, parts, train, evaluate, k_max)
     if cfg.k_s:
@@ -209,7 +214,7 @@ def data_batch(setup: Setup, j: int, it: int):
 
 
 def profile_batch(setup: Setup, j: int, it: int, eq: bool = False, vin: bool = False):
-    """Step 0 of the data start (r08): dPV profiles of the regime for training devices only.
+    """Step 0 of the data start (r09): dPV profiles of the regime for training devices only.
 
     The equilibrium regime fits (phi_eq, 0, 0), voltage V_j fits pots[j], and the voltage-input
     stage a random voltage per device; `pretrain_nodes` mesh nodes are resampled every
@@ -372,7 +377,7 @@ def train(setup: Setup, state=None, callback=None, stop_after=None, models_dir=N
             state["wstate"] = ws
         t0 = time.time()
 
-        if state["phase"] == "pre":  # r08 data start: step 0, data only, no residual
+        if state["phase"] == "pre":  # r09 data start: step 0, data only, no residual
             pre = get_pre(eq)
             while state["it"] < cfg.pretrain_iters:
                 batch = profile_batch(setup, j, state["it"], eq, vin)
@@ -557,7 +562,7 @@ def summarize(setup: Setup, state) -> dict:
     values = [h["loss"] for h in state["history"]] + [x for h in state["history"] for x in h.get("s", [])]
     values += [r["J"] for recs in state["eval"].values() for r in recs]
     out["nonfinite"] = int(sum(not np.isfinite(v) for v in values))
-    # E0 (experiments v04): exact zeros among active components after the first iteration
+    # E0 (experiments v05): exact zeros among active components after the first iteration
     # of a regime (underflow; the first-iteration zeros the equilibrium start gives by
     # construction are counted apart), gradient shares, the mean field errors of Eq. (20)
     # over test devices, and batch changes.

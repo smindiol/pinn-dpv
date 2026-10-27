@@ -23,7 +23,7 @@ RULING_PATH = Path(__file__).with_name("admissibility.json")
 #: against. `require_admissible` reads it too, so a ruling made against a
 #: revision this suite was not written for is refused at measure time
 #: instead of only surfacing later, at `verify`'s sha256 staleness check.
-CURRENT_REVISION = "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md"
+CURRENT_REVISION = "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md"
 
 #: Still carrying its placeholder: this file was scaffolded before the bound
 #: revision was known. The engine's `--stage objects` (SKILL.md step 9) fills

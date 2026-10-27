@@ -36,7 +36,7 @@ from scipy.interpolate import CubicSpline
 from PINN_DPV import contacts, interfaces, network, optics, physics, scaling  # noqa: F401
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md",
     "sections": ["6"],
     "equations": ["15", "23"],
     "invariants": [
@@ -191,7 +191,7 @@ def data_term(params, prob: Problem, batch, v_tilde, equilibrium=False):
     """L_dat of Eq. (15): normalized squared errors at K_s positions per device.
 
     An optional batch["vd"] gives each device its own V_tilde (the data start of the
-    voltage-as-input variant, r08).
+    voltage-as-input variant, r09).
     """
     span = jnp.asarray(prob.scales.y_max) - jnp.asarray(prob.scales.y_min)
     vd = batch.get("vd", jnp.broadcast_to(jnp.asarray(v_tilde, float), batch["xid"].shape[:1]))

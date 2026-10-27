@@ -6,12 +6,14 @@ Eq. (24): u_hat(x_hat, xi_hat) = U(x_hat, rho_1, ..., rho_Nint, xi_hat) with
 rho_m = |x_hat - x_hat_m(xi)|, so u_hat is continuous at x_hat_m and its x-derivative
 may jump by 2 dU/drho_m; the one-sided traces are dU/dx +- dU/drho_m, exact by
 automatic differentiation.
-Fourier features (Sec. 8, the base architecture in r06; the plain perceptron is the
+Fourier features (Sec. 8, the base architecture in r08; the plain perceptron is the
 control): x_hat alone is projected on sin/cos(2 pi b_l x_hat) with random fixed b_l
 before the first layer; rho_m and xi_hat enter unprojected.
 Voltage as input (Sec. 8 variant): one network for the whole curve receives
 V_hat = V / V_max in [0, 1] unprojected; every input is on a comparable scale:
 x_hat, xi_hat, rho_m, V_hat in [0, 1], the Fourier features in [-1, 1].
+Zero start of u_phi (A2 step 1, r08): the last-layer row of u_phi is zeroed with zero
+bias, so Eq. (3) gives phi = phi_lin at initialization, whatever the features.
 Equilibrium start (A2 step 2): the last-layer rows of u_phi_n, u_phi_p are zeroed
 and their bias set to -Y_min / (Y_max - Y_min), so that phi_n = phi_p = 0.
 Gummel alternation (Sec. 6, strategy 6): two networks, one for phi and one for
@@ -31,7 +33,7 @@ import numpy as np
 from PINN_DPV import scaling
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
     "sections": ["2", "6", "8"],
     "equations": ["3", "24"],
     "invariants": [
@@ -41,6 +43,7 @@ __provenance__ = {
         "kaiming_initialization_scale",
         "potentials_meet_dirichlet_for_any_weights",
         "equilibrium_start_gives_zero_quasi_fermi",
+        "phi_zero_start_gives_linear_profile",
         "voltage_input_on_unit_interval",
         "no_cusp_ablation_is_smooth_at_interfaces",
     ],
@@ -57,7 +60,7 @@ class NetConfig:
     fourier_scale: float = 1.0
     split: bool = False  # True: Gummel alternation, separate phi and (phi_n, phi_p) networks
     v_max: float = 0.0  # > 0: voltage-as-input variant, V_hat = V_tilde / v_max (V_tilde units)
-    cusp: bool = True  # False: experiments v02 E6 ablation, no rho_m inputs (Eq. 24 removed)
+    cusp: bool = True  # False: experiments v04 E6 ablation, no rho_m inputs (Eq. 24 removed)
 
     @property
     def v_input(self) -> bool:
@@ -152,8 +155,28 @@ def potentials(params, cfg: NetConfig, scales: OutputScales, x_hat, xi_hat, x_m,
     return phi, phi_n, phi_p
 
 
+def phi_zero_start(params, cfg: NetConfig):
+    """A2 step 1 (r08): u_phi = 0 at every point, so Eq. (3) gives phi = phi_lin.
+
+    The last-layer weights and bias of u_phi are zeroed; the hidden layers and the
+    Fourier features keep their random initialization and receive gradient from the
+    second iteration on.
+    """
+    params = dict(params)
+    if cfg.split:
+        last = dict(params["phi"][-1])
+        last["W"], last["b"] = jnp.zeros_like(last["W"]), jnp.zeros_like(last["b"])
+        params["phi"] = params["phi"][:-1] + [last]
+    else:
+        last = dict(params["all"][-1])
+        last["W"] = last["W"].at[:, 0].set(0.0)
+        last["b"] = last["b"].at[0].set(0.0)
+        params["all"] = params["all"][:-1] + [last]
+    return params
+
+
 def equilibrium_start(params, cfg: NetConfig, scales: OutputScales):
-    """A2 step 2 (r06): phi_n = phi_p = 0 exactly, the equilibrium solution of step 1.
+    """A2 step 2 (r08): phi_n = phi_p = 0 exactly, the equilibrium solution of step 1.
 
     The last-layer weights of u_phi_n, u_phi_p are zeroed and their biases set to
     -Y_min / (Y_max - Y_min); this needs Y_min <= 0 <= Y_max for both.

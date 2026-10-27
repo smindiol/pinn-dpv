@@ -23,7 +23,7 @@ import numpy as np
 from scipy import constants as const
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
     "sections": ["2"],
     "equations": ["1", "2", "3"],
     "invariants": [

@@ -36,7 +36,7 @@ def tiny_cfg(d_xi=2, n_int=1, **kw):
 
 # --- network ----------------------------------------------------------------------------------
 def test_network_continuous_at_interfaces() -> None:
-    """r06 Sec. 8, Eq. (24): u_hat is continuous at x_hat_m because rho_m enters through |x - x_m|."""
+    """r08 Sec. 8, Eq. (24): u_hat is continuous at x_hat_m because rho_m enters through |x - x_m|."""
     cfg = tiny_cfg(n_int=2)
     p = network.init(jax.random.PRNGKey(0), cfg)
     xi, xm = jnp.asarray([0.3, 0.6]), jnp.asarray([0.25, 0.7])
@@ -47,7 +47,7 @@ def test_network_continuous_at_interfaces() -> None:
 
 
 def test_cusp_trace_jump_is_twice_drho() -> None:
-    """r06 Eq. (24) and E0 protocol: [du/dx] at x_m equals 2 dU/drho_m, by AD and by lateral
+    """r08 Eq. (24) and E0 protocol: [du/dx] at x_m equals 2 dU/drho_m, by AD and by lateral
     finite differences within 1e-6 relative."""
     cfg = tiny_cfg(n_int=1)
     p = network.init(jax.random.PRNGKey(3), cfg)
@@ -66,7 +66,7 @@ def test_cusp_trace_jump_is_twice_drho() -> None:
 
 
 def test_plain_network_when_no_interface() -> None:
-    """r06 Sec. 8: in E1 (N_int = 0) the network is the perceptron on (x_hat, xi_hat) unchanged."""
+    """r08 Sec. 8: in E1 (N_int = 0) the network is the perceptron on (x_hat, xi_hat) unchanged."""
     cfg = tiny_cfg(n_int=0)
     p = network.init(jax.random.PRNGKey(1), cfg)
     assert p["all"][0]["W"].shape[0] == 1 + 2
@@ -80,7 +80,7 @@ def test_plain_network_when_no_interface() -> None:
 
 
 def test_kaiming_initialization_scale() -> None:
-    """r06 Sec. 8: Kaiming initialization, weight std sqrt(2 / fan_in), zero biases."""
+    """r08 Sec. 8: Kaiming initialization, weight std sqrt(2 / fan_in), zero biases."""
     cfg = network.NetConfig(d_xi=2, n_int=0, width=512, depth=2)
     p = network.init(jax.random.PRNGKey(0), cfg)
     w = np.asarray(p["all"][1]["W"])
@@ -89,7 +89,7 @@ def test_kaiming_initialization_scale() -> None:
 
 
 def test_potentials_meet_dirichlet_for_any_weights() -> None:
-    """r06 Eq. (3), (11): phi(0) = phi_eq(0), phi(1) = phi_eq(1) + V~ whatever the weights."""
+    """r08 Eq. (3), (11): phi(0) = phi_eq(0), phi(1) = phi_eq(1) + V~ whatever the weights."""
     cfg = tiny_cfg(n_int=1)
     sc = network.OutputScales(30.0, (-5.0, -5.0), (5.0, 5.0))
     for seed in range(3):
@@ -105,13 +105,13 @@ def _smooth_side_fields(side):
 
 
 def test_jumps_vanish_for_smooth_flux_continuous_fields() -> None:
-    """r06 Eq. (22): same material on both sides and smooth fields give zero flux jumps."""
+    """r08 Eq. (22): same material on both sides and smooth fields give zero flux jumps."""
     j = interfaces.flux_jumps(_smooth_side_fields, 0, jnp.asarray([0.5]), MAT, MAT, 1e-3)
     assert float(jnp.max(jnp.abs(j))) < 1e-14
 
 
 def test_jump_detects_displacement_mismatch() -> None:
-    """r06 Eq. (22): with eps jumping and dphi/dx continuous, [eps dphi/dx] = (eps_r - eps_l) phi'."""
+    """r08 Eq. (22): with eps jumping and dphi/dx continuous, [eps dphi/dx] = (eps_r - eps_l) phi'."""
     right = dict(MAT, eps=12.0)
     j = interfaces.flux_jumps(_smooth_side_fields, 0, jnp.asarray([0.5]), MAT, right, 1e-3)
     assert abs(float(j[0]) - (12.0 - 9.4) * 2.0) < 1e-12
@@ -138,7 +138,7 @@ def small_batch(d, n=6, with_data=False):
 
 @needs_dataset
 def test_loss_is_weighted_sum_of_components() -> None:
-    """r06 Eq. (15): L = sum_i lambda_i log(1 + L_i / sigma_i^2); doubling one lambda adds exactly
+    """r08 Eq. (15): L = sum_i lambda_i log(1 + L_i / sigma_i^2); doubling one lambda adds exactly
     its compressed share."""
     prob = problem()
     p = network.init(jax.random.PRNGKey(0), prob.cfg)
@@ -154,7 +154,7 @@ def test_loss_is_weighted_sum_of_components() -> None:
 
 @needs_dataset
 def test_residual_equals_sum_of_terms() -> None:
-    """r06 Eq. (23): every residual is the sum of its terms T_iq, the same terms sigma_i is built on."""
+    """r08 Eq. (23): every residual is the sum of its terms T_iq, the same terms sigma_i is built on."""
     prob = problem()
     fs = prob.fs
     p = network.init(jax.random.PRNGKey(2), prob.cfg)
@@ -173,7 +173,7 @@ def test_residual_equals_sum_of_terms() -> None:
 
 @needs_dataset
 def test_spline_fields_interpolate_nodes() -> None:
-    """r06 Eq. (23): the per-layer cubic interpolant reproduces dPV's potentials at its nodes,
+    """r08 Eq. (23): the per-layer cubic interpolant reproduces dPV's potentials at its nodes,
     so the floor measures only the operator applied between nodes, not a misplaced reference."""
     fs = data.FamilyStage.load("E3A")
     dev = data.load("E3A", data.device_keys("E3A")[:1])[0]
@@ -188,7 +188,7 @@ def test_spline_fields_interpolate_nodes() -> None:
 
 @needs_dataset
 def test_sigma_bounds_residual() -> None:
-    """r06 Eq. (23): |R_i| <= sum_q |T_iq| pointwise, so L_i^floor <= sigma_i^2 in every component."""
+    """r08 Eq. (23): |R_i| <= sum_q |T_iq| pointwise, so L_i^floor <= sigma_i^2 in every component."""
     fs = data.FamilyStage.load("E3A")
     devs = data.load("E3A", data.device_keys("E3A")[:2])
     s2, fl = loss.sigma_and_floor(fs, devs)
@@ -200,7 +200,7 @@ def test_sigma_bounds_residual() -> None:
 
 @needs_dataset
 def test_data_term_zero_on_reference() -> None:
-    """r06 Eq. (15): L_dat vanishes when the reference equals the network's own potentials."""
+    """r08 Eq. (15): L_dat vanishes when the reference equals the network's own potentials."""
     prob = problem()
     p = network.init(jax.random.PRNGKey(5), prob.cfg)
     b = small_batch(prob.fs.d, with_data=True)
@@ -226,7 +226,7 @@ def _quad_problem():
 
 
 def test_ntk_equalizes_gradient_norms() -> None:
-    """r06 Eq. (16): after lambda_i = K_bar / K_i, every lambda_i K_i equals K_bar."""
+    """r08 Eq. (16): after lambda_i = K_bar / K_i, every lambda_i K_i equals K_bar."""
     params, comps = _quad_problem()
     lam = weighting.ntk_weights(comps, params)
     k = jax.jacrev(lambda p: jnp.sqrt(comps(p)))(params)["w"]
@@ -236,7 +236,7 @@ def test_ntk_equalizes_gradient_norms() -> None:
 
 
 def test_ntk_invariant_to_sigma() -> None:
-    """r06 Sec. 6 and E0 protocol: NTK's descent direction does not change when each component is
+    """r08 Sec. 6 and E0 protocol: NTK's descent direction does not change when each component is
     divided by sigma_i^2 (cosine > 1 - 1e-10), while fixed weights' direction does."""
     params, comps = _quad_problem()
     sig = jnp.asarray([1e-3, 1.0, 1e4])
@@ -254,7 +254,7 @@ def test_ntk_invariant_to_sigma() -> None:
 
 
 def test_brdr_weights_mean_one() -> None:
-    """r06 Eq. (17): BRDR's lambda is renormalized to mean one at every step."""
+    """r08 Eq. (17): BRDR's lambda is renormalized to mean one at every step."""
     st = weighting.init_state(["a", "b", "c"], "brdr")
     rng = np.random.default_rng(0)
     for _ in range(50):
@@ -263,7 +263,7 @@ def test_brdr_weights_mean_one() -> None:
 
 
 def test_ema_weights_track_loss_shares() -> None:
-    """r06 Eq. (18): under constant components the EMA weights converge to s_i / sum_l s_l."""
+    """r08 Eq. (18): under constant components the EMA weights converge to s_i / sum_l s_l."""
     st = weighting.init_state(["a", "b"], "ema")
     s = jnp.asarray([3.0, 1.0])
     for _ in range(40000):
@@ -272,7 +272,7 @@ def test_ema_weights_track_loss_shares() -> None:
 
 
 def test_gummel_blocks_alternate() -> None:
-    """r06 Sec. 6, strategy 6: blocks alternate between the phi network and the (phi_n, phi_p) one,
+    """r08 Sec. 6, strategy 6: blocks alternate between the phi network and the (phi_n, phi_p) one,
     each with its own components."""
     phases = [weighting.gummel_phase(i, 5) for i in range(20)]
     assert phases[:5] == ["phi"] * 5 and phases[5:10] == ["qf"] * 5 and phases[10] == "phi"
@@ -382,11 +382,13 @@ def test_token_never_in_argv(tmp_path, monkeypatch) -> None:
 
 # --- training ----------------------------------------------------------------------------------
 @functools.lru_cache(maxsize=None)
-def tiny_setup(fs_name="E3A", strategy="fixed", k_s=0, seed=1, v_input=False, qf_start="equilibrium"):
+def tiny_setup(fs_name="E3A", strategy="fixed", k_s=0, seed=1, v_input=False, qf_start="equilibrium",
+               start="zero"):
     cfg = training.TrainConfig(family_stage=fs_name, seed=seed, strategy=strategy, width=8, depth=2,
                                n_q=24, adam_iters=6, lbfgs_iters=2, max_devices=2, max_voltages=2,
                                data_batch=2, k_s=k_s, checkpoint_every=3, eval_marks=(3,),
-                               v_input=v_input, qf_start=qf_start, grad_share_marks=(1, 4))
+                               v_input=v_input, qf_start=qf_start, grad_share_marks=(1, 4),
+                               start=start, pretrain_iters=8, pretrain_nodes=16)
     fs = data.FamilyStage.load(fs_name)
     tr = data.load(fs_name, data.split(data.device_keys(fs_name), seed)["train"][:2])
     s2, _ = loss.sigma_and_floor(fs, tr[:1])
@@ -415,7 +417,7 @@ def test_resume_equals_uninterrupted(tmp_path) -> None:
 
 
 def test_collocation_deterministic_per_step() -> None:
-    """r06 Sec. 8: Halton points are resampled every iteration, as a function of (seed, voltage, it)."""
+    """r08 Sec. 8: Halton points are resampled every iteration, as a function of (seed, voltage, it)."""
     cfg = training.TrainConfig(family_stage="E1A", seed=3, n_q=50)
     a = training.collocation(cfg, 2, 4, 17)
     b = training.collocation(cfg, 2, 4, 17)
@@ -427,7 +429,7 @@ def test_collocation_deterministic_per_step() -> None:
 
 @needs_dataset
 def test_equilibrium_trains_phi_only() -> None:
-    """r06 Algorithm A2 (1): at equilibrium only u_phi is trained; phi_n = phi_p = 0 hard, so the
+    """r08 Algorithm A2 (1): at equilibrium only u_phi is trained; phi_n = phi_p = 0 hard, so the
     network's phi_n and phi_p output weights receive no gradient."""
     setup = tiny_setup()
     names, scaled, objective = training.make_fns(setup, equilibrium=True)
@@ -442,7 +444,7 @@ def test_equilibrium_trains_phi_only() -> None:
 
 @needs_dataset
 def test_loss_decreases_on_tiny_problem() -> None:
-    """r06 Sec. 8: Adam reduces the equilibrium objective on a fixed batch (the optimizer is wired
+    """r08 Sec. 8: Adam reduces the equilibrium objective on a fixed batch (the optimizer is wired
     to the loss of Eq. 15, with the sigma scaling of Eq. 23)."""
     import optax
     setup = tiny_setup()
@@ -484,7 +486,7 @@ def test_online_evaluation_matches_offline(tmp_path) -> None:
 
 @needs_dataset
 def test_e_pce_zero_for_reference_curve() -> None:
-    """r06 Eq. (14), (20): fed dPV's own J-V curve, A3 returns e_PCE = 0 and zero diagnostics."""
+    """r08 Eq. (14), (20): fed dPV's own J-V curve, A3 returns e_PCE = 0 and zero diagnostics."""
     for fs in ("E1A", "E3A"):
         dev = data.load(fs, data.device_keys(fs)[:1], profiles=False)[0]
         m = evaluation.curve_metrics(dev.J, dev)
@@ -492,7 +494,7 @@ def test_e_pce_zero_for_reference_curve() -> None:
 
 
 def test_iqm_trims_quartiles() -> None:
-    """r06 Sec. 9: the IQM is the mean of the middle half; outliers in the outer quartiles do not move it."""
+    """r08 Sec. 9: the IQM is the mean of the middle half; outliers in the outer quartiles do not move it."""
     x = np.arange(1.0, 9.0)  # 1..8, middle half 3..6
     assert abs(evaluation.iqm(x) - 4.5) < 1e-12
     y = x.copy()
@@ -502,7 +504,7 @@ def test_iqm_trims_quartiles() -> None:
 
 @needs_dataset
 def test_floor_is_q95_of_refinement_gap() -> None:
-    """r06 Eq. (21): r = Q_0.95 of |eta(N_g) - eta(4 N_g)| over the re-simulated devices; for E1A
+    """r08 Eq. (21): r = Q_0.95 of |eta(N_g) - eta(4 N_g)| over the re-simulated devices; for E1A
     the dataset card states 0.047 pp."""
     rec = steps.reference_floor("E1A")
     assert abs(rec["r_pp"] - 0.047) < 5e-4
@@ -511,7 +513,7 @@ def test_floor_is_q95_of_refinement_gap() -> None:
 
 
 def test_bayesian_signed_rank_probabilities_sum_to_one() -> None:
-    """r06 Sec. 9: the Bayesian signed-rank test returns P(worse) + P(rope) + P(better) = 1, and a
+    """r08 Sec. 9: the Bayesian signed-rank test returns P(worse) + P(rope) + P(better) = 1, and a
     configuration that is better on every pair by more than the rope wins."""
     rng = np.random.default_rng(0)
     y = rng.uniform(1, 2, 30)
@@ -524,7 +526,7 @@ def test_bayesian_signed_rank_probabilities_sum_to_one() -> None:
 
 # --- search and B0 ---------------------------------------------------------------------------------
 def test_tpe_space_is_log10_minus3_to_3(tmp_path) -> None:
-    """r06 Eq. (19): every suggested lambda lies in [1e-3, 1e3], sampled in log10."""
+    """r08 Eq. (19): every suggested lambda lies in [1e-3, 1e3], sampled in log10."""
     seen = []
 
     def objective(lam):
@@ -550,14 +552,14 @@ def test_tpe_resumes_finished_trials(tmp_path) -> None:
 
 
 def test_b0_sees_only_xi() -> None:
-    """r06 Sec. 8: B0 receives only xi_hat (input width d_xi) and returns one PCE per device."""
+    """r08 Sec. 8: B0 receives only xi_hat (input width d_xi) and returns one PCE per device."""
     p = b0.init(jax.random.PRNGKey(0), 3, width=8, depth=2)
     assert p[0]["W"].shape[0] == 3
     assert b0.predict(p, jnp.zeros((5, 3))).shape == (5,)
 
 
 def test_b0_fits_smooth_target() -> None:
-    """r06 Sec. 8: B0 is trained by squared error; on a smooth synthetic PCE map it reaches a
+    """r08 Sec. 8: B0 is trained by squared error; on a smooth synthetic PCE map it reaches a
     small training error (the regression machinery works before it meets dPV's data)."""
     rng = np.random.default_rng(0)
     x = rng.uniform(0, 1, (64, 2))
@@ -570,7 +572,7 @@ def test_b0_fits_smooth_target() -> None:
 # --- steps ---------------------------------------------------------------------------------------
 @needs_dataset
 def test_sigma_per_seed_uses_only_training_devices(tmp_path) -> None:
-    """r06 Sec. 2, 6 and A1 (iv): D_phi, Y extremes and sigma_i come only from each seed's training
+    """r08 Sec. 2, 6 and A1 (iv): D_phi, Y extremes and sigma_i come only from each seed's training
     subset; two seeds with different training subsets get different aggregates."""
     paths = steps.compute_sigma("E1A", seeds=(0, 1), out_dir=str(tmp_path), max_devices=12)
     recs = [json.load(open(p)) for p in paths]
@@ -623,9 +625,9 @@ def test_initial_component_spread_is_log10_max_over_min() -> None:
     assert abs(rows[1]["log10_spread"] - np.log10(4.0)) < 1e-12
 
 
-# --- r06 ----------------------------------------------------------------------------------------
+# --- r08 ----------------------------------------------------------------------------------------
 def test_log_loss_matches_linear_near_reference() -> None:
-    """r06 Sec. 6: near the reference (L_i << sigma_i^2) ell_i = log(1 + L_i / sigma_i^2) agrees
+    """r08 Sec. 6: near the reference (L_i << sigma_i^2) ell_i = log(1 + L_i / sigma_i^2) agrees
     with the linear scaled sum to second order, and the linear control form is kept exact."""
     s = jnp.asarray([1e-8, 1e-5, 1e-3])
     ell = loss.compress(s, "log1p")
@@ -636,7 +638,7 @@ def test_log_loss_matches_linear_near_reference() -> None:
 
 
 def test_log_loss_gradient_never_vanishes() -> None:
-    """r06 Sec. 6: grad ell_i = grad L_i / (sigma_i^2 + L_i) stays nonzero far from the reference,
+    """r08 Sec. 6: grad ell_i = grad L_i / (sigma_i^2 + L_i) stays nonzero far from the reference,
     where cutting with min(L_i / sigma_i^2, c) leaves no gradient at all."""
     big = lambda t: jnp.exp(t)  # noqa: E731 -- an exponential component, as Eq. (4) makes them
     g_log = jax.grad(lambda t: loss.compress(big(t), "log1p"))(200.0)
@@ -647,7 +649,7 @@ def test_log_loss_gradient_never_vanishes() -> None:
 
 @needs_dataset
 def test_sg_floor_small_on_dpv_profiles() -> None:
-    """r06 Eq. (23): with dPV's own Scharfetter-Gummel currents the continuity floor discriminates:
+    """r08 Eq. (23): with dPV's own Scharfetter-Gummel currents the continuity floor discriminates:
     L^floor / sigma^2 well below one in n and p (the spline operator left it at ~1, rehearsal)."""
     fs = data.FamilyStage.load("E1A")
     devs = data.load("E1A", data.device_keys("E1A")[:3])
@@ -658,7 +660,7 @@ def test_sg_floor_small_on_dpv_profiles() -> None:
 
 
 def test_equilibrium_start_gives_zero_quasi_fermi() -> None:
-    """r06 A2 step 2: zeroed last-layer rows and bias -Y_min / (Y_max - Y_min) give phi_n = phi_p = 0
+    """r08 A2 step 2: zeroed last-layer rows and bias -Y_min / (Y_max - Y_min) give phi_n = phi_p = 0
     at every point, for the joint and the split (Gummel) network; random weights do not."""
     sc = network.OutputScales(40.0, (-3.0, -5.0), (4.0, 2.0))
     xi, xm = jnp.asarray([0.3, 0.6]), jnp.asarray([0.4])
@@ -675,8 +677,24 @@ def test_equilibrium_start_gives_zero_quasi_fermi() -> None:
         network.equilibrium_start(p, cfg, network.OutputScales(40.0, (1.0, -1.0), (2.0, 1.0)))
 
 
+def test_phi_zero_start_gives_linear_profile() -> None:
+    """r08 A2 step 1: the zeroed u_phi row gives phi = phi_lin at every point, with and without
+    Fourier features and for the split network; the random row does not."""
+    sc = network.OutputScales(40.0, (-3.0, -5.0), (4.0, 2.0))
+    xi, xm = jnp.asarray([0.3, 0.6]), jnp.asarray([0.4])
+    for split, ff in ((False, 0), (False, 8), (True, 8)):
+        cfg = tiny_cfg(n_int=1, split=split, fourier_features=ff, fourier_scale=5.0)
+        p = network.init(jax.random.PRNGKey(5), cfg)
+        lin = scaling.phi_linear(0.37, 1.0, -1.0, 0.0)
+        assert abs(float(network.potentials(p, cfg, sc, 0.37, xi, xm, 1.0, -1.0, 0.0)[0]) - lin) > 1e-6
+        q = network.phi_zero_start(p, cfg)
+        for x in (0.05, 0.37, 0.81):
+            phi = network.potentials(q, cfg, sc, x, xi, xm, 1.0, -1.0, 0.0)[0]
+            assert abs(float(phi) - float(scaling.phi_linear(x, 1.0, -1.0, 0.0))) < 1e-14
+
+
 def test_voltage_input_on_unit_interval() -> None:
-    """r06 Sec. 8 variant: V_hat = V_tilde / V_max enters as one more unprojected input in [0, 1],
+    """r08 Sec. 8 variant: V_hat = V_tilde / V_max enters as one more unprojected input in [0, 1],
     and the potentials then depend on the voltage beyond the Dirichlet line."""
     cfg = tiny_cfg(n_int=0, v_max=20.0)
     assert cfg.n_in == 1 + 2 + 1
@@ -690,7 +708,7 @@ def test_voltage_input_on_unit_interval() -> None:
 
 @needs_dataset
 def test_equilibrium_start_applied_entering_v0() -> None:
-    """r06 A2 step 2: leaving the equilibrium stage sets phi_n = phi_p = 0; the 'random' control
+    """r08 A2 step 2: leaving the equilibrium stage sets phi_n = phi_p = 0; the 'random' control
     leaves the weights untouched."""
     for start in ("equilibrium", "random"):
         setup = tiny_setup(qf_start=start)
@@ -706,8 +724,28 @@ def test_equilibrium_start_applied_entering_v0() -> None:
 
 
 @needs_dataset
+def test_data_start_fits_before_physics() -> None:
+    """r08 data start: every regime opens with a data-only step 0 with a finite L_dat, the
+    zero start's phi row is not imposed, and the physics stages follow; the zero start has none."""
+    setup = tiny_setup(fs_name="E1A", start="data")
+    st0 = training.new_state(setup)
+    assert st0["phase"] == "pre"
+    assert np.any(np.asarray(st0["params"]["all"][-1]["W"])[:, 0] != 0.0)
+    st = training.train(setup)
+    pre = [h for h in st["history"] if h.get("phase") == "pre"]
+    regimes = {(h["stage"], h["j"]) for h in pre}
+    assert regimes == {("eq", 0)} | {("sweep", j) for j in range(setup.k_max)}
+    first = [h["loss"] for h in pre if h["stage"] == "eq" and h["it"] == 1][0]
+    last = [h["loss"] for h in pre if h["stage"] == "eq" and h["it"] == setup.cfg.pretrain_iters][0]
+    assert np.isfinite(first) and np.isfinite(last) and first > 0.0
+    assert {h["stage"] for h in st["history"] if "names" in h} == {"eq", "sweep"}
+    zero = training.train(tiny_setup(fs_name="E1A"))
+    assert not [h for h in zero["history"] if h.get("phase") == "pre"]
+
+
+@needs_dataset
 def test_voltage_input_trains_one_stage() -> None:
-    """r06 Sec. 8 variant: after the equilibrium, one stage over V_hat with the total budget, then
+    """r08 Sec. 8 variant: after the equilibrium, one stage over V_hat with the total budget, then
     every voltage of the curve is evaluated from the same weights."""
     setup = tiny_setup(fs_name="E1A", v_input=True)
     st = training.train(setup)
@@ -719,7 +757,7 @@ def test_voltage_input_trains_one_stage() -> None:
 
 
 def test_gradient_shares_sum_to_one() -> None:
-    """Experiments v02, E0 (ii): the shares ||grad lambda_i ell_i|| / sum_l ||grad lambda_l ell_l||
+    """Experiments v04, E0 (ii): the shares ||grad lambda_i ell_i|| / sum_l ||grad lambda_l ell_l||
     sum to one, and a component scaled up by 1e6 takes almost all of it."""
     w = {"a": jnp.asarray([1.0, 2.0]), "b": jnp.asarray(0.5)}
     f = lambda p: jnp.stack([jnp.sum(p["a"] ** 2), p["b"] ** 2 * 1e6])  # noqa: E731
@@ -729,7 +767,7 @@ def test_gradient_shares_sum_to_one() -> None:
 
 
 def test_screen_verdicts_follow_caps() -> None:
-    """Experiments v02, E0: (i) initial s_i <= 10, (ii) early gradient share <= 0.9, (iii) no
+    """Experiments v04, E0: (i) initial s_i <= 10, (ii) early gradient share <= 0.9, (iii) no
     non-finite value and no exact zero; each verdict flips when its quantity crosses its cap."""
     ok = {"initial_components": [{"s": {"n": 9.0, "p": 0.1}}], "nonfinite": 0, "zero_components": 0,
           "grad_shares": [{"it": 100, "share": [0.5, 0.5]}, {"it": 900, "share": [0.99, 0.01]}]}
@@ -742,7 +780,7 @@ def test_screen_verdicts_follow_caps() -> None:
 
 
 def test_batch_rule_halves_only_on_out_of_memory(monkeypatch, tmp_path) -> None:
-    """Experiments v02 batch rule: an out-of-memory error halves N_Q and resumes, recording the
+    """Experiments v04 batch rule: an out-of-memory error halves N_Q and resumes, recording the
     change; any other error propagates untouched."""
     import dataclasses
 
@@ -777,7 +815,7 @@ def test_batch_rule_halves_only_on_out_of_memory(monkeypatch, tmp_path) -> None:
 
 
 def test_brdr_ema_fixed_not_invariant_to_sigma() -> None:
-    """r06 Sec. 6: BRDR's lambda is unchanged by sigma_i but its effective weight lambda_i / sigma_i^2
+    """r08 Sec. 6: BRDR's lambda is unchanged by sigma_i but its effective weight lambda_i / sigma_i^2
     moves, and EMA and fixed weights change their descent direction: none is invariant."""
     params, comps = _quad_problem()
     sig = jnp.asarray([1e-3, 1.0, 1e4])
@@ -797,7 +835,7 @@ def test_brdr_ema_fixed_not_invariant_to_sigma() -> None:
 
 
 def test_no_cusp_ablation_is_smooth_at_interfaces() -> None:
-    """Experiments v02 E6: without rho_m the network is a smooth perceptron on (x_hat, xi_hat), so its
+    """Experiments v04 E6: without rho_m the network is a smooth perceptron on (x_hat, xi_hat), so its
     x-derivative cannot jump at x_hat_m."""
     cfg = tiny_cfg(n_int=1, cusp=False)
     assert cfg.n_in == 1 + 2
@@ -810,7 +848,7 @@ def test_no_cusp_ablation_is_smooth_at_interfaces() -> None:
 
 @needs_dataset
 def test_no_sigma_ablation_uses_unit_scales() -> None:
-    """Experiments v02 E6: sigma_scale=False divides every component by one, so the scaled vector
+    """Experiments v04 E6: sigma_scale=False divides every component by one, so the scaled vector
     equals the raw components."""
     from dataclasses import replace
     setup = tiny_setup()
@@ -825,7 +863,7 @@ def test_no_sigma_ablation_uses_unit_scales() -> None:
 
 
 def test_screen_conclusion_follows_rows() -> None:
-    """Experiments v02, E0 success criterion: the chosen configuration is the lowest validation e_PCE
+    """Experiments v04, E0 success criterion: the chosen configuration is the lowest validation e_PCE
     among runs meeting (i)-(iii); swapping the e_PCE values changes the choice, and a control that
     violates (i) is detected."""
     good = dict(h_i_initial_bounded=True, h_ii_no_dominant_gradient=True, h_iii_finite_and_nonzero=True)

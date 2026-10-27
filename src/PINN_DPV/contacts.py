@@ -24,7 +24,7 @@ import numpy as np
 from PINN_DPV import optics, physics, scaling
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
     "sections": ["5", "8"],
     "equations": ["11", "12", "13", "14"],
     "invariants": [

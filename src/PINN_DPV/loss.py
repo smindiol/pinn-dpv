@@ -36,7 +36,7 @@ from scipy.interpolate import CubicSpline
 from PINN_DPV import contacts, interfaces, network, optics, physics, scaling  # noqa: F401
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
     "sections": ["6"],
     "equations": ["15", "23"],
     "invariants": [
@@ -187,19 +187,24 @@ def components(params, prob: Problem, batch, v_tilde, equilibrium=False):
     return out
 
 
-def data_term(params, prob: Problem, batch, v_tilde):
-    """L_dat of Eq. (15): normalized squared errors at K_s positions per device."""
-    span = jnp.asarray(prob.scales.y_max) - jnp.asarray(prob.scales.y_min)
+def data_term(params, prob: Problem, batch, v_tilde, equilibrium=False):
+    """L_dat of Eq. (15): normalized squared errors at K_s positions per device.
 
-    def one(xi, xs, ref):
+    An optional batch["vd"] gives each device its own V_tilde (the data start of the
+    voltage-as-input variant, r08).
+    """
+    span = jnp.asarray(prob.scales.y_max) - jnp.asarray(prob.scales.y_min)
+    vd = batch.get("vd", jnp.broadcast_to(jnp.asarray(v_tilde, float), batch["xid"].shape[:1]))
+
+    def one(xi, xs, ref, v):
         dev = device(prob.fs, xi)
-        f = net_fields(params, prob, xi, dev, v_tilde)
+        f = net_fields(params, prob, xi, dev, v, equilibrium)
         pred = jax.vmap(lambda x: jnp.stack(f(x)))(xs)  # (K_s, 3)
         e_phi = ((pred[:, 0] - ref[0]) / prob.scales.d_phi) ** 2
         e_qf = jnp.sum(((pred[:, 1:] - ref[1:].T) / span) ** 2, axis=-1)
         return jnp.mean(e_phi + e_qf)
 
-    return jnp.mean(jax.vmap(one)(batch["xid"], batch["xs"], batch["ref"]))
+    return jnp.mean(jax.vmap(one)(batch["xid"], batch["xs"], batch["ref"], vd))
 
 
 LOSS_FORMS = ("log1p", "linear")

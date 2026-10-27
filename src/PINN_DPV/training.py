@@ -16,7 +16,7 @@ iteration), so a resumed run repeats the uninterrupted one exactly.
 The L-BFGS stage of a voltage uses one fixed collocation batch, because its line
 search needs one fixed objective.
 
-r06: the loss is sum_i lambda_i log(1 + s_i), s_i = L_i / sigma_i^2 (`loss_form`
+r08: the loss is sum_i lambda_i log(1 + s_i), s_i = L_i / sigma_i^2 (`loss_form`
 "linear" keeps the previous linear sum as E0's control), and every weighting strategy acts on
 ell_i = log(1 + s_i). Entering V_0 the quasi-Fermi outputs start at the
 equilibrium (`qf_start`, "random" is E0's control). The voltage-as-input variant
@@ -40,7 +40,7 @@ from scipy.stats import qmc
 from PINN_DPV import contacts, data, evaluation, loss, network, persistence, scaling, weighting
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
     "sections": ["6", "8"],
     "equations": ["15", "16", "17", "18"],
     "invariants": [
@@ -52,6 +52,7 @@ __provenance__ = {
         "voltage_input_trains_one_stage",
         "gradient_shares_sum_to_one",
         "no_sigma_ablation_uses_unit_scales",
+        "data_start_fits_before_physics",
     ],
 }
 
@@ -80,11 +81,14 @@ class TrainConfig:
     device_pool: int | None = None  # E0 screening: the first N devices, split as sigma splits them
     fixed_lambdas: dict | None = None  # TPE's chosen weights
     eval_marks: tuple = ()  # Adam iterations at which validation devices are also evaluated (E0)
-    loss_form: str = "log1p"  # r06 Eq. (15); "linear": the previous linear sum, E0's control
-    qf_start: str = "equilibrium"  # r06 A2 step 2; "random": the previous random start, E0's control
-    v_input: bool = False  # r06 Sec. 8 variant: one network for the whole curve
-    cusp: bool = True  # experiments v02 E6: False drops the rho_m inputs of Eq. (24)
-    sigma_scale: bool = True  # experiments v02 E6: False sets sigma_i = 1 (no Eq. 23 scale)
+    loss_form: str = "log1p"  # r08 Eq. (15); "linear": the previous linear sum, E0's control
+    qf_start: str = "equilibrium"  # r08 A2 step 2; "random": the previous random start, E0's control
+    start: str = "zero"  # r08 A2 steps 1-2; "data": r08 step 0, a data-only fit at each regime start
+    pretrain_iters: int = 500  # step 0 Adam iterations per regime (start == "data")
+    pretrain_nodes: int = 128  # mesh nodes per device and iteration, resampled (start == "data")
+    v_input: bool = False  # r08 Sec. 8 variant: one network for the whole curve
+    cusp: bool = True  # experiments v04 E6: False drops the rho_m inputs of Eq. (24)
+    sigma_scale: bool = True  # experiments v04 E6: False sets sigma_i = 1 (no Eq. 23 scale)
     grad_share_marks: tuple = (1, 100, 200, 300, 400, 500)
     run_id: str = ""
 
@@ -98,6 +102,7 @@ class TrainConfig:
         extra += "" if self.sigma_scale else "-nosigma"
         extra += "" if self.loss_form == "log1p" else f"-{self.loss_form}"
         extra += "" if self.qf_start == "equilibrium" else f"-qf{self.qf_start}"
+        extra += "" if self.start == "zero" else f"-start{self.start}"
         return (f"{self.family_stage}-{self.strategy}-{dat}-{arch}-w{self.width}d{self.depth}"
                 f"{extra}-s{self.seed}")
 
@@ -167,6 +172,8 @@ def prepare(cfg: TrainConfig, sigma: dict, root=None) -> Setup:
         raise ValueError("the voltage-as-input variant has no sparse-state data term")
     if cfg.loss_form not in loss.LOSS_FORMS or cfg.qf_start not in ("equilibrium", "random"):
         raise ValueError(f"unknown loss_form {cfg.loss_form!r} or qf_start {cfg.qf_start!r}")
+    if cfg.start not in ("zero", "data"):
+        raise ValueError(f"unknown start {cfg.start!r}")
     sc = sigma["scales"]
     # The equilibrium of A2 step 1 (phi_n = phi_p = 0) is part of what is trained, so the
     # extremes of Eq. (3) include it: the sweep alone can leave Y_max at -1e-8 for phi_p
@@ -199,6 +206,34 @@ def data_batch(setup: Setup, j: int, it: int):
     return {"xid": jnp.asarray(np.stack([setup.train[i].u for i in pick])),
             "xs": jnp.asarray(np.stack([setup.sparse[(i, j)][0] for i in pick])),
             "ref": jnp.asarray(np.stack([setup.sparse[(i, j)][1] for i in pick]))}
+
+
+def profile_batch(setup: Setup, j: int, it: int, eq: bool = False, vin: bool = False):
+    """Step 0 of the data start (r08): dPV profiles of the regime for training devices only.
+
+    The equilibrium regime fits (phi_eq, 0, 0), voltage V_j fits pots[j], and the voltage-input
+    stage a random voltage per device; `pretrain_nodes` mesh nodes are resampled every
+    iteration, so the fit covers the whole mesh.
+    """
+    cfg = setup.cfg
+    rng = np.random.default_rng(_seed_int(cfg.seed, j + 2, it, 5))
+    pick = rng.choice(len(setup.train), size=min(cfg.data_batch, len(setup.train)), replace=False)
+    xid, xs, ref, vd = [], [], [], []
+    for i in pick:
+        d = setup.train[i]
+        jj = int(rng.integers(min(len(d.V), setup.k_max))) if vin else j
+        prof = np.stack([d.phi_eq, 0 * d.phi_eq, 0 * d.phi_eq]) if eq else d.pots[jj]
+        n = prof.shape[1]
+        idx = rng.choice(n, size=cfg.pretrain_nodes, replace=n < cfg.pretrain_nodes)
+        xid.append(d.u)
+        xs.append(scaling.x_hat_from_debye(d.x)[idx])
+        ref.append(prof[:, idx])
+        vd.append(contacts.DV * jj / scaling.ENERGY)
+    out = {"xid": jnp.asarray(np.stack(xid)), "xs": jnp.asarray(np.stack(xs)),
+           "ref": jnp.asarray(np.stack(ref))}
+    if vin:
+        out["vd"] = jnp.asarray(vd)
+    return out
 
 
 # --- Steps ----------------------------------------------------------------------------------
@@ -258,8 +293,10 @@ def _freeze(grads, strategy, phase):
 def new_state(setup: Setup):
     cfg = setup.cfg
     params = network.init(jax.random.PRNGKey(cfg.seed), setup.prob.cfg)
+    if cfg.start == "zero":
+        params = network.phi_zero_start(params, setup.prob.cfg)
     return {"run_id": cfg.resolved_run_id(), "cfg": asdict(cfg), "stage": "eq", "j": 0,
-            "phase": "adam", "it": 0, "params": params, "opt_state": _optimizer(cfg).init(params),
+            "phase": _first_phase(cfg), "it": 0, "params": params, "opt_state": _optimizer(cfg).init(params),
             "wstate": None, "lbfgs_state": None, "eval": {}, "history": [], "done": False,
             "seconds": 0.0, "per_voltage_seconds": []}
 
@@ -297,6 +334,21 @@ def train(setup: Setup, state=None, callback=None, stop_after=None, models_dir=N
             steps[k] = jax.jit(step)
         return steps[k]
 
+    pres = {}
+
+    def get_pre(eq):
+        if eq not in pres:
+            opt = _optimizer(cfg, cfg.pretrain_iters)
+
+            def step(params, opt_state, batch, v_tilde):
+                val, g = jax.value_and_grad(
+                    lambda p: loss.data_term(p, setup.prob, batch, v_tilde, equilibrium=eq))(params)
+                upd, opt_state = opt.update(g, opt_state, params)
+                return optax.apply_updates(params, upd), opt_state, val
+
+            pres[eq] = jax.jit(step)
+        return pres[eq]
+
     shares = {}
 
     def share_fn(eq):
@@ -319,6 +371,23 @@ def train(setup: Setup, state=None, callback=None, stop_after=None, models_dir=N
             ws["names"] = list(names)
             state["wstate"] = ws
         t0 = time.time()
+
+        if state["phase"] == "pre":  # r08 data start: step 0, data only, no residual
+            pre = get_pre(eq)
+            while state["it"] < cfg.pretrain_iters:
+                batch = profile_batch(setup, j, state["it"], eq, vin)
+                state["params"], state["opt_state"], val = pre(state["params"], state["opt_state"],
+                                                               batch, v_tilde)
+                state["it"] += 1
+                if state["it"] in (1, cfg.pretrain_iters):
+                    state["history"].append({"stage": state["stage"], "j": j, "it": state["it"],
+                                             "phase": "pre", "loss": float(val)})
+                done_iters += 1
+                if stop_after is not None and done_iters >= stop_after:
+                    state["seconds"] += time.time() - t0
+                    return state
+            state["phase"], state["it"] = "adam", 0
+            state["opt_state"] = _optimizer(cfg).init(state["params"])
 
         if state["phase"] == "adam":
             while state["it"] < n_adam:
@@ -446,7 +515,7 @@ def _evaluate_voltage(setup, state, j):
 def _advance(setup, state):
     if state["stage"] == "eq":
         state["stage"], state["j"] = ("vin" if setup.cfg.v_input else "sweep"), 0
-        if setup.cfg.qf_start == "equilibrium":
+        if setup.cfg.qf_start == "equilibrium" and setup.cfg.start == "zero":
             state["params"] = network.equilibrium_start(state["params"], setup.prob.cfg, setup.prob.scales)
     elif state["stage"] == "vin":
         state["done"] = True
@@ -454,7 +523,11 @@ def _advance(setup, state):
         state["j"] += 1
     else:
         state["done"] = True
-    state["phase"], state["it"] = "adam", 0
+    state["phase"], state["it"] = _first_phase(setup.cfg), 0
+
+
+def _first_phase(cfg: TrainConfig) -> str:
+    return "pre" if cfg.start == "data" and cfg.pretrain_iters > 0 else "adam"
 
 
 def summarize(setup: Setup, state) -> dict:
@@ -484,9 +557,14 @@ def summarize(setup: Setup, state) -> dict:
     values = [h["loss"] for h in state["history"]] + [x for h in state["history"] for x in h.get("s", [])]
     values += [r["J"] for recs in state["eval"].values() for r in recs]
     out["nonfinite"] = int(sum(not np.isfinite(v) for v in values))
-    # E0 (experiments v02): exact zeros among active components (underflow), gradient
-    # shares, the mean field errors of Eq. (20) over test devices, and batch changes.
-    out["zero_components"] = int(sum(x == 0.0 for h in state["history"] for x in h.get("s", [])))
+    # E0 (experiments v04): exact zeros among active components after the first iteration
+    # of a regime (underflow; the first-iteration zeros the equilibrium start gives by
+    # construction are counted apart), gradient shares, the mean field errors of Eq. (20)
+    # over test devices, and batch changes.
+    out["zero_components"] = int(sum(x == 0.0 for h in state["history"] if h.get("it") != 1
+                                     for x in h.get("s", [])))
+    out["zero_components_first"] = int(sum(x == 0.0 for h in state["history"] if h.get("it") == 1
+                                           for x in h.get("s", [])))
     out["grad_shares"] = state.get("grad_shares", [])
     test = [k for k in setup.split["test"] if k in state["eval"]]
     for f in ("e_phi", "e_phi_n", "e_phi_p"):

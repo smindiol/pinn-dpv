@@ -37,7 +37,7 @@ import jax
 import numpy as np
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
     "sections": ["8"],
     "equations": [],
     "invariants": [

@@ -91,7 +91,7 @@ __benchmark__ = {
         "conclusions": ["PINN_DPV.steps.budget_rule", "PINN_DPV.steps.screen_conclusion"],
         "figures": [],
         "dimensions": {"e_pce_pp": "lower", "seconds": "lower"},
-        # Experiments v02, E0 (ii): the loss terms of r06 Eq. (15) and the dimension that
+        # Experiments v04, E0 (ii): the loss terms of r08 Eq. (15) and the dimension that
         # carries each one's share of the gradient norm (training.gradient_shares).
         "components": {"terms": ["Poisson", "n", "p", "BCn", "BCp", "int_phi", "int_n", "int_p", "dat"],
                        "share": "grad_shares"},

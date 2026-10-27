@@ -7,7 +7,7 @@ test under tests/.
 
 import jax
 
-# r06 Sec. 8: double precision throughout, as in dPV, because delta^2 reaches
+# r08 Sec. 8: double precision throughout, as in dPV, because delta^2 reaches
 # 1e-9. Set before any array is created by this package.
 jax.config.update("jax_enable_x64", True)
 
@@ -20,8 +20,8 @@ __implementation__ = {
     # document label instead, so each skill reads its own lineage:
     #     "revision": {"proposal": "<filename>", "<label>": "<filename>"},
     "revision": {
-        "proposal": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
-        "experiments": "experiments-protocolo-experimental-del-benchmark-pinn-sobre-dpv-v02.md",
+        "proposal": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r08.md",
+        "experiments": "experiments-protocolo-experimental-del-benchmark-pinn-sobre-dpv-v04.md",
     },
 
     # What kind of prediction the protocol assumes, over which unit,
@@ -201,7 +201,7 @@ __steps__ = {
         "job": "sigma",
         "service": "kaggle",
     },
-    # Experiments v02, E0: the screening of r06's formulation on Kaggle T4s, one
+    # Experiments v04, E0: the screening of r08's formulation on Kaggle T4s, one
     # group per account and session (loss-init, arch, size, voltage-interfaces).
     # Computes its own sigma on the screening pool, so it reads nothing upstream.
     "screen": {

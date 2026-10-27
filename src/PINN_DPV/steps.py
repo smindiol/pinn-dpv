@@ -139,7 +139,7 @@ def compute_sigma(family_stage: str, seeds=SEEDS, root=None, out_dir=SIGMA_DIR, 
 
 def run_sigma(family_stages=FAMILY_STAGES, max_devices=None):
     """Local step: sigma JSONs for every family-stage and seed (CPU); skips finished ones."""
-    data.ensure_dataset()
+    data.ensure_dataset(family_stages)
     out, t0 = [], time.time()
     for i, fs in enumerate(family_stages):
         print(f"[sigma] {fs} ({i + 1}/{len(family_stages)}), elapsed {(time.time() - t0) / 60:.1f} min", flush=True)
@@ -260,7 +260,7 @@ def run_pilot(family_stages=PILOT_FAMILY_STAGES, seeds=PILOT_SEEDS, root=None, m
     `mirror_root` to $PINN_DPV_MIRROR (the Drive folder on Colab).
     """
     mirror_root = mirror_root or os.environ.get("PINN_DPV_MIRROR")
-    data.ensure_dataset()
+    data.ensure_dataset(family_stages)
     shrink = dict(REHEARSAL) if rehearsal else {}
     shrink.update(overrides or {})
     token = persistence.github_token() if push else None
@@ -281,7 +281,7 @@ def run_pilot(family_stages=PILOT_FAMILY_STAGES, seeds=PILOT_SEEDS, root=None, m
 # --- rehearsals (Kaggle) --------------------------------------------------------------------------
 def smoke_sigma(family_stages=PILOT_FAMILY_STAGES, max_devices=60):
     """Rehearsal of `sigma`: the same code on the first devices of the pilot's family-stages."""
-    data.ensure_dataset()
+    data.ensure_dataset(family_stages)
     for fs in family_stages:
         compute_sigma(fs, max_devices=max_devices)
     return sigma_overview(family_stages)

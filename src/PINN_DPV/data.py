@@ -196,18 +196,26 @@ def dataset_root() -> str:
 KAGGLE_DATASET = "sgarizado/dpv-pinn-canonical"
 
 
-def ensure_dataset(slug: str = KAGGLE_DATASET) -> str:
-    """The data root, downloading the canonical files first when running inside a Kaggle
-    kernel that has them neither attached nor already downloaded. kagglehub authenticates
-    there as the kernel's own account, which the dataset is shared with."""
+def ensure_dataset(family_stages=None, slug: str = KAGGLE_DATASET) -> str:
+    """The data root, downloading the missing canonical files of `family_stages` (all when
+    None) from the public Kaggle dataset when running inside a Kaggle kernel.
+
+    Kaggle refuses to attach a dataset to a non-interactive kernel, so kagglehub's in-kernel
+    attach path is switched off and each file is fetched over HTTP, one by one: a step pays
+    only for the family-stages it reads."""
+    wanted = list(CANONICAL_FILES) if family_stages is None else list(family_stages)
     root = dataset_root()
-    if all(os.path.exists(p) for fs in CANONICAL_FILES for p in canonical_paths(fs, root)):
+    missing = [rel for fs in wanted for rel, p in zip(CANONICAL_FILES[fs], canonical_paths(fs, root))
+               if not os.path.exists(p)]
+    if not missing or not os.path.isdir("/kaggle"):
         return root
-    if not os.path.isdir("/kaggle"):
-        return root
+    os.environ["DISABLE_KAGGLE_CACHE"] = "1"
     import kagglehub
 
-    os.environ["PINN_DPV_DATA"] = kagglehub.dataset_download(slug)
+    for rel in missing:
+        path = kagglehub.dataset_download(slug, path=os.path.basename(rel))
+        os.environ["PINN_DPV_DATA"] = os.path.dirname(path)
+        print(f"[data] {os.path.basename(rel)} -> {os.environ['PINN_DPV_DATA']}", flush=True)
     return dataset_root()
 
 

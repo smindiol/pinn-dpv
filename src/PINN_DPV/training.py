@@ -51,6 +51,7 @@ __provenance__ = {
         "equilibrium_start_applied_entering_v0",
         "voltage_input_trains_one_stage",
         "gradient_shares_sum_to_one",
+        "no_sigma_ablation_uses_unit_scales",
     ],
 }
 
@@ -82,6 +83,8 @@ class TrainConfig:
     loss_form: str = "log1p"  # r06 Eq. (15); "linear": the previous linear sum, E0's control
     qf_start: str = "equilibrium"  # r06 A2 step 2; "random": the previous random start, E0's control
     v_input: bool = False  # r06 Sec. 8 variant: one network for the whole curve
+    cusp: bool = True  # experiments v02 E6: False drops the rho_m inputs of Eq. (24)
+    sigma_scale: bool = True  # experiments v02 E6: False sets sigma_i = 1 (no Eq. 23 scale)
     grad_share_marks: tuple = (1, 100, 200, 300, 400, 500)
     run_id: str = ""
 
@@ -91,6 +94,8 @@ class TrainConfig:
         arch = f"ff{self.fourier_features}x{self.fourier_scale:g}" if self.fourier_features else "mlp"
         dat = f"ks{self.k_s}" if self.k_s else "pure"
         extra = "-vin" if self.v_input else ""
+        extra += "" if self.cusp else "-nocusp"
+        extra += "" if self.sigma_scale else "-nosigma"
         extra += "" if self.loss_form == "log1p" else f"-{self.loss_form}"
         extra += "" if self.qf_start == "equilibrium" else f"-qf{self.qf_start}"
         return (f"{self.family_stage}-{self.strategy}-{dat}-{arch}-w{self.width}d{self.depth}"
@@ -170,7 +175,7 @@ def prepare(cfg: TrainConfig, sigma: dict, root=None) -> Setup:
     v_max = contacts.DV * (k_max - 1) / scaling.ENERGY if cfg.v_input else 0.0
     net = network.NetConfig(d_xi=fs.d, n_int=fs.n_int, width=cfg.width, depth=cfg.depth,
                             fourier_features=cfg.fourier_features, fourier_scale=cfg.fourier_scale,
-                            split=cfg.strategy == "gummel", v_max=v_max)
+                            split=cfg.strategy == "gummel", v_max=v_max, cusp=cfg.cusp)
     prob = loss.Problem(fs=fs, cfg=net, scales=scales, sigma2=dict(sigma["sigma2"]))
     setup = Setup(cfg, fs, prob, parts, train, evaluate, k_max)
     if cfg.k_s:
@@ -198,7 +203,8 @@ def make_fns(setup: Setup, equilibrium: bool):
     prob, cfg = setup.prob, setup.cfg
     names = loss.active_components(setup.fs.n_int, equilibrium, with_data=cfg.k_s > 0)
     key = (lambda c: f"{c}@eq") if equilibrium else (lambda c: c)
-    sig = jnp.asarray([prob.sigma2.get(key(c), 1.0) if c != "dat" else 1.0 for c in names])
+    sig = jnp.asarray([prob.sigma2.get(key(c), 1.0) if c != "dat" and cfg.sigma_scale else 1.0
+                       for c in names])
 
     def raw(params, batch, v_tilde):  # s_i = L_i / sigma_i^2
         comps = loss.components(params, prob, batch, v_tilde, equilibrium)

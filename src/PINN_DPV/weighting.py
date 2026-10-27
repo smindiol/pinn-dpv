@@ -31,6 +31,7 @@ __provenance__ = {
     "invariants": [
         "ntk_equalizes_gradient_norms",
         "ntk_invariant_to_sigma",
+        "brdr_ema_fixed_not_invariant_to_sigma",
         "brdr_weights_mean_one",
         "ema_weights_track_loss_shares",
         "gummel_blocks_alternate",

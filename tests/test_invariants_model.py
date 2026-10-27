@@ -774,3 +774,51 @@ def test_batch_rule_halves_only_on_out_of_memory(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(training, "train", other)
     with pytest.raises(RuntimeError, match="shape mismatch"):
         steps._train_with_batch_rule(S(cfg), None, None, str(tmp_path), None, None, "x")
+
+
+def test_brdr_ema_fixed_not_invariant_to_sigma() -> None:
+    """r06 Sec. 6: BRDR's lambda is unchanged by sigma_i but its effective weight lambda_i / sigma_i^2
+    moves, and EMA and fixed weights change their descent direction: none is invariant."""
+    params, comps = _quad_problem()
+    sig = jnp.asarray([1e-3, 1.0, 1e4])
+
+    def cos(a, b):
+        return float(jnp.dot(a, b) / jnp.linalg.norm(a) / jnp.linalg.norm(b))
+
+    def direction(update, fn, steps=50):
+        names = ("a", "b", "c")
+        st = weighting.init_state(names, "brdr" if update is weighting.brdr_update else "ema")
+        for _ in range(steps):
+            st = update(st, fn(params))
+        return jax.grad(lambda p: jnp.sum(st["lam"] * fn(p)))(params)["w"]
+
+    for upd in (weighting.brdr_update, weighting.ema_update):
+        assert cos(direction(upd, comps), direction(upd, lambda p: comps(p) / sig)) < 1 - 1e-3
+
+
+def test_no_cusp_ablation_is_smooth_at_interfaces() -> None:
+    """Experiments v02 E6: without rho_m the network is a smooth perceptron on (x_hat, xi_hat), so its
+    x-derivative cannot jump at x_hat_m."""
+    cfg = tiny_cfg(n_int=1, cusp=False)
+    assert cfg.n_in == 1 + 2
+    p = network.init(jax.random.PRNGKey(6), cfg)
+    xi, xm = jnp.asarray([0.4, 0.2]), jnp.asarray([0.37])
+    jump = jax.jacfwd(lambda x: network.u_hat(p, cfg, x, xi, xm, side=jnp.asarray([1.0])))(xm[0]) - \
+        jax.jacfwd(lambda x: network.u_hat(p, cfg, x, xi, xm, side=jnp.asarray([-1.0])))(xm[0])
+    assert float(jnp.max(jnp.abs(jump))) == 0.0
+
+
+@needs_dataset
+def test_no_sigma_ablation_uses_unit_scales() -> None:
+    """Experiments v02 E6: sigma_scale=False divides every component by one, so the scaled vector
+    equals the raw components."""
+    from dataclasses import replace
+    setup = tiny_setup()
+    plain = training.Setup(replace(setup.cfg, sigma_scale=False), setup.fs, setup.prob, setup.split,
+                           setup.train, setup.evaluate, setup.k_max)
+    names, scaled, _ = training.make_fns(plain, equilibrium=True)
+    p = network.init(jax.random.PRNGKey(0), setup.prob.cfg)
+    batch = training.collocation(setup.cfg, setup.fs.d, 0, 0)
+    comps = loss.components(p, setup.prob, batch, 0.0, equilibrium=True)
+    want = loss.compress(jnp.stack([comps[c] for c in names]), "log1p")
+    assert float(jnp.max(jnp.abs(scaled(p, batch, 0.0) - want))) <= 1e-12 * float(jnp.max(want))

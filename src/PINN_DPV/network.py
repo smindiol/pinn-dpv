@@ -42,6 +42,7 @@ __provenance__ = {
         "potentials_meet_dirichlet_for_any_weights",
         "equilibrium_start_gives_zero_quasi_fermi",
         "voltage_input_on_unit_interval",
+        "no_cusp_ablation_is_smooth_at_interfaces",
     ],
 }
 
@@ -56,6 +57,7 @@ class NetConfig:
     fourier_scale: float = 1.0
     split: bool = False  # True: Gummel alternation, separate phi and (phi_n, phi_p) networks
     v_max: float = 0.0  # > 0: voltage-as-input variant, V_hat = V_tilde / v_max (V_tilde units)
+    cusp: bool = True  # False: experiments v02 E6 ablation, no rho_m inputs (Eq. 24 removed)
 
     @property
     def v_input(self) -> bool:
@@ -64,7 +66,7 @@ class NetConfig:
     @property
     def n_in(self) -> int:
         nx = 2 * self.fourier_features if self.fourier_features else 1
-        return nx + self.n_int + self.d_xi + (1 if self.v_input else 0)
+        return nx + (self.n_int if self.cusp else 0) + self.d_xi + (1 if self.v_input else 0)
 
 
 def _mlp_init(key, sizes):
@@ -103,7 +105,7 @@ def _features(params, cfg, x_hat, rho, xi_hat, v_hat=0.0):
         fx = jnp.concatenate([jnp.sin(arg), jnp.cos(arg)])
     else:
         fx = jnp.atleast_1d(x_hat)
-    parts = [fx, jnp.atleast_1d(rho), xi_hat]
+    parts = [fx, jnp.atleast_1d(rho), xi_hat] if cfg.cusp else [fx, xi_hat]
     if cfg.v_input:
         parts.append(jnp.atleast_1d(v_hat))
     return jnp.concatenate(parts)

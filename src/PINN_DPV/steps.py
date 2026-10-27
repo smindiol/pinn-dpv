@@ -400,12 +400,13 @@ SCREEN_GROUPS["start"] = [dict(family_stage="E1A", start="data"), dict(family_st
 #: Experiments v05: the eight combinations of r09's tools against spectral bias (Fourier
 #: features at scale 5, the activation of zhang2025, one network per output), each with
 #: fixed weights and with BRDR, in E1A; four sessions of four runs, each with two of the
-#: heavier separate-network runs. The Fourier scale sweep follows, on the chosen combination.
+#: heavier separate-network runs; tg with separate networks comes first, so a rehearsal (first
+#: run only) trains the new tools. The Fourier scale sweep follows, on the chosen combination.
 for _w in ("fixed", "brdr"):
     for _half, _ff in (("a", 0), ("b", 64)):
         SCREEN_GROUPS[f"arch-{_w}-{_half}"] = [
             dict(family_stage="E1A", strategy=_w, fourier_features=_ff, activation=_act, separate=_sep)
-            for _act in ("tanh", "tg") for _sep in (False, True)]
+            for _act in ("tg", "tanh") for _sep in (True, False)]
 SCREEN_SHARE_CAP = 0.9  # hypothesis (ii): no component above 90 % of the gradient norm
 
 

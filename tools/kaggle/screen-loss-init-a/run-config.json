@@ -10,7 +10,7 @@
     "tests",
     "requirements.txt"
   ],
-  "commit": "4d8a22c55653703176234fddd5f578b5deff7c3a",
+  "commit": "8454acfa5ee86ca53b19f7dc9abb1580391697c5",
   "environment": {
     "install": {
       "requirements": [
@@ -41,7 +41,7 @@
       "function": "smoke_screen",
       "kwargs": {
         "group": "loss-init-a",
-        "tests": false
+        "tests": true
       },
       "module": "PINN_DPV.steps"
     }
@@ -60,9 +60,9 @@
   "service": "kaggle",
   "unresolvedReads": [
     "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:167: open(os.path.join(sigma_dir, f'{family_stage}_seed{seed}.json')) \u2014 open() call on a path that could not be resolved",
-    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:508: open(path) \u2014 open() call on a path that could not be resolved",
-    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:548: open(path) \u2014 open() call on a path that could not be resolved",
-    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:560: open(path) \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:515: open(path) \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:555: open(path) \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:567: open(path) \u2014 open() call on a path that could not be resolved",
     "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/persistence.py:93: open(path, 'rb') \u2014 open() call on a path that could not be resolved",
     "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/persistence.py:97: open(side) \u2014 open() call on a path that could not be resolved",
     "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/persistence.py:269: open(path, 'rb') \u2014 open() call on a path that could not be resolved"

@@ -5,7 +5,7 @@ One test per mathematical claim the proposal makes. The name MUST be
 `__provenance__["invariants"]`; verification pairs them by that exact name.
 
 Each docstring cites the passage it enforces. Tests marked `dataset` read the
-dPV reference files (r05 Sec. 7) from `data.dataset_root()`; they compare this
+dPV reference files (r06 Sec. 7) from `data.dataset_root()`; they compare this
 package against values dPV itself stored, never against values computed here.
 """
 
@@ -58,7 +58,7 @@ def discrete_poisson(dev, nd, phi, phi_n, phi_p):
 
 # --- scaling ----------------------------------------------------------------
 def test_debye_scales_match_dpv() -> None:
-    """r05 Sec. 2, Eq. (1): G_0 = C_0 / t_0 and J_0 = q C_0 L_D / t_0 equal dPV's own forms."""
+    """r06 Sec. 2, Eq. (1): G_0 = C_0 / t_0 and J_0 = q C_0 L_D / t_0 equal dPV's own forms."""
     s = scaling.debye_scales()
     assert abs(s["G_0"] / (s["C_0"] / s["t_0"]) - 1) < 1e-12
     assert abs(s["J_0"] / (scaling.Q * s["C_0"] * s["L_D"] / s["t_0"]) - 1) < 1e-12
@@ -68,7 +68,7 @@ def test_debye_scales_match_dpv() -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_dataset_grid_is_debye_scaled(fs) -> None:
-    """r05 Sec. 2, Eq. (1)-(2): the stored grid `x_cm` is x / L_D, so its end times L_D is L_total."""
+    """r06 Sec. 2, Eq. (1)-(2): the stored grid `x_cm` is x / L_D, so its end times L_D is L_total."""
     for dev in sample(fs):
         assert abs(dev.x[-1] * scaling.LENGTH / data.l_total_cm(dev.family, dev.xi) - 1) < 1e-9
         assert dev.x[0] == 0.0
@@ -77,7 +77,7 @@ def test_dataset_grid_is_debye_scaled(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_xi_normalization_roundtrip(fs) -> None:
-    """r05 Sec. 2, Eq. (3): xi_hat reproduces the stored u, and its inverse recovers xi."""
+    """r06 Sec. 2, Eq. (3): xi_hat reproduces the stored u, and its inverse recovers xi."""
     specs = data.xi_specs(data.canonical_paths(fs)[0])
     for dev in sample(fs):
         values = [dev.xi[s["nombre"]] for s in specs]
@@ -88,7 +88,7 @@ def test_xi_normalization_roundtrip(fs) -> None:
 
 
 def test_phi_hard_constraint_meets_dirichlet() -> None:
-    """r05 Sec. 2, Eq. (3) and (11): phi(0) = phi_eq(0) and phi(1) = phi_eq(1) + V~ for any output."""
+    """r06 Sec. 2, Eq. (3) and (11): phi(0) = phi_eq(0) and phi(1) = phi_eq(1) + V~ for any output."""
     for u_phi in (-3.0, 0.0, 7.5):
         for v in (0.0, 12.3):
             assert abs(scaling.phi_from_output(0.0, u_phi, -40.0, -55.0, v, 9.0) - (-40.0)) < TOL
@@ -97,7 +97,7 @@ def test_phi_hard_constraint_meets_dirichlet() -> None:
 
 
 def test_quasi_fermi_affine_roundtrip() -> None:
-    """r05 Sec. 2, Eq. (3): Y_k = Y_min + (Y_max - Y_min) u_k is inverted exactly."""
+    """r06 Sec. 2, Eq. (3): Y_k = Y_min + (Y_max - Y_min) u_k is inverted exactly."""
     y = np.linspace(-30.0, 4.0, 11)
     u = scaling.quasi_fermi_to_output(y, -30.0, 4.0)
     assert u[0] == 0.0 and abs(u[-1] - 1.0) < TOL
@@ -105,7 +105,7 @@ def test_quasi_fermi_affine_roundtrip() -> None:
 
 
 def test_float64_enabled() -> None:
-    """r05 Sec. 8: every computation runs in double precision, as dPV does."""
+    """r06 Sec. 8: every computation runs in double precision, as dPV does."""
     assert jnp.zeros(1).dtype == jnp.float64
     assert (jnp.asarray(1.0) + 1e-12).dtype == jnp.float64
     assert float(jnp.asarray(1.0) + 1e-12) != 1.0
@@ -115,7 +115,7 @@ def test_float64_enabled() -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_device_materials_match_dataset(fs) -> None:
-    """r05 Sec. 2 and 7: material parameters are piecewise constant, jumping only at x_hat_m(xi).
+    """r06 Sec. 2 and 7: material parameters are piecewise constant, jumping only at x_hat_m(xi).
 
     The rebuilt node arrays change value exactly once per declared heterointerface,
     on the grid interval that contains x_hat_m.
@@ -132,7 +132,7 @@ def test_device_materials_match_dataset(fs) -> None:
 
 
 def test_split_is_partition_by_device() -> None:
-    """r05 Sec. 7: 80/10/10 by device, never by point or voltage; no device in two subsets."""
+    """r06 Sec. 7: 80/10/10 by device, never by point or voltage; no device in two subsets."""
     keys = [f"b000/sims/{i:06d}" for i in range(1000)]
     parts = data.split(keys, seed=3)
     assert (len(parts["train"]), len(parts["val"]), len(parts["test"])) == (800, 100, 100)
@@ -143,7 +143,7 @@ def test_split_is_partition_by_device() -> None:
 
 
 def test_split_depends_on_seed() -> None:
-    """r05 Sec. 8-9: each seed changes the device partition; the same seed reproduces it."""
+    """r06 Sec. 8-9: each seed changes the device partition; the same seed reproduces it."""
     keys = [f"b000/sims/{i:06d}" for i in range(200)]
     first = data.split(keys, 0)
     again = data.split(list(reversed(keys)), 0)  # same devices, listed in another order
@@ -152,7 +152,7 @@ def test_split_depends_on_seed() -> None:
 
 
 def test_corners_go_to_test() -> None:
-    """r05 Sec. 7: the 2^d corners of the xi hypercube belong to test whatever the seed."""
+    """r06 Sec. 7: the 2^d corners of the xi hypercube belong to test whatever the seed."""
     keys = [f"b000/sims/{i:06d}" for i in range(50)]
     corners = ["b000/esquinas/-00001", "b000/esquinas/-00002"]
     for seed in range(5):
@@ -163,7 +163,7 @@ def test_corners_go_to_test() -> None:
 
 # --- physics --------------------------------------------------------------------
 def test_densities_positive_and_mass_action() -> None:
-    """r05 Sec. 3, Eq. (4): n, p > 0 and n p = ni^2 exp(phi_n - phi_p)."""
+    """r06 Sec. 3, Eq. (4): n, p > 0 and n p = ni^2 exp(phi_n - phi_p)."""
     mat = {"Nc": 0.08, "Nv": 1.8, "Chi": 150.9, "Eg": 58.0}
     for phi, pn, pp in [(-160.0, 0.0, 0.0), (-150.0, 2.0, -3.0), (-170.0, -5.0, 4.0)]:
         n, p = physics.densities(phi, pn, pp, mat)
@@ -172,7 +172,7 @@ def test_densities_positive_and_mass_action() -> None:
 
 
 def test_recombination_vanishes_at_equilibrium() -> None:
-    """r05 Sec. 3, Eq. (8): R = 0 when n p = ni^2 (phi_n = phi_p), for SRH and radiative terms."""
+    """r06 Sec. 3, Eq. (8): R = 0 when n p = ni^2 (phi_n = phi_p), for SRH and radiative terms."""
     mat = {"Nc": 0.39, "Nv": 0.27, "Chi": 150.9, "Eg": 58.0, "Et": 0.0, "Br": 1.6, "tn": 18.0, "tp": 18.0}
     for phi in (-170.0, -160.0, -150.0):
         n, p = physics.densities(phi, 1.5, 1.5, mat)
@@ -182,7 +182,7 @@ def test_recombination_vanishes_at_equilibrium() -> None:
 
 
 def test_continuity_sum_is_total_current_divergence() -> None:
-    """r05 Sec. 3, Eq. (7): R_n + R_p = R_J = delta d/dx (J_n + J_p), the source terms cancel."""
+    """r06 Sec. 3, Eq. (7): R_n + R_p = R_J = delta d/dx (J_n + J_p), the source terms cancel."""
     mat = {"Nc": 0.08, "Nv": 1.8, "Chi": 150.9, "Eg": 58.0, "Et": 0.0, "Br": 0.0,
            "tn": 180.0, "tp": 180.0, "mn": 100.0, "mp": 100.0, "eps": 9.4, "Ndop": 0.01}
 
@@ -198,7 +198,7 @@ def test_continuity_sum_is_total_current_divergence() -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_sg_currents_match_dataset(fs) -> None:
-    """r05 Sec. 7: the stored Jn, Jp are dPV's Scharfetter-Gummel currents of the stored potentials."""
+    """r06 Sec. 7: the stored Jn, Jp are dPV's Scharfetter-Gummel currents of the stored potentials."""
     for dev in sample(fs):
         jn, jp = physics.sg_currents(dev.x, jnp.asarray(dev.pots), jnodes(dev))
         for k in range(len(dev.V)):
@@ -210,7 +210,7 @@ def test_sg_currents_match_dataset(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_poisson_residual_small_on_dpv_profiles(fs) -> None:
-    """r05 Sec. 3, Eq. (4)-(5): with these densities dPV's solutions satisfy discrete Poisson.
+    """r06 Sec. 3, Eq. (4)-(5): with these densities dPV's solutions satisfy discrete Poisson.
 
     dPV stops Newton when its update is below 1e-6, so the residual it leaves is
     bounded by about 1e-6 of the largest term; a wrong sign or scale in Eq. (4)
@@ -229,7 +229,7 @@ def test_poisson_residual_small_on_dpv_profiles(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_discrete_continuity_small_on_dpv_sweep(fs) -> None:
-    """r05 Sec. 3-4, Eq. (7), (8), (10): G and R balance dPV's discrete current divergence.
+    """r06 Sec. 3-4, Eq. (7), (8), (10): G and R balance dPV's discrete current divergence.
 
     Per node the residual relative to its own terms has a median below 1e-4 at
     every voltage (measured up to 1.4e-6 in E1): dPV's Newton stops on an update
@@ -254,7 +254,7 @@ def test_discrete_continuity_small_on_dpv_sweep(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_generation_matches_dpv(fs) -> None:
-    """r05 Sec. 4, Eq. (9)-(10): G recomputed here equals dPV's stored G, LDS of E4 included."""
+    """r06 Sec. 4, Eq. (9)-(10): G recomputed here equals dPV's stored G, LDS of E4 included."""
     for dev in sample(fs):
         lam, P = optics.spectrum(dev.family, dev.xi)
         g = np.asarray(optics.generation_on_grid(dev.x, nodes_of(dev), lam, P))
@@ -262,7 +262,7 @@ def test_generation_matches_dpv(fs) -> None:
 
 
 def test_lds_photon_balance() -> None:
-    """r05 Sec. 4, Eq. (9): photons out = photons in - (1 - eta_geom eta_PL) * absorbed."""
+    """r06 Sec. 4, Eq. (9): photons out = photons in - (1 - eta_geom eta_PL) * absorbed."""
     lam, P = optics.standard_spectrum()
     window = (lam >= 300.0) & (lam <= 400.0)
     absorbed = 0.95 * np.sum((P * lam)[window])
@@ -275,7 +275,7 @@ def test_lds_photon_balance() -> None:
 
 
 def test_lds_identity_outside_window() -> None:
-    """r05 Sec. 4, Eq. (9): bands outside 300-400 nm other than k_em are untouched."""
+    """r06 Sec. 4, Eq. (9): bands outside 300-400 nm other than k_em are untouched."""
     lam, P = optics.standard_spectrum()
     _, P2 = optics.lds_spectrum(0.7)
     k_em = int(np.argmin(np.abs(lam - optics.LDS_LAMBDA_EM_NM)))
@@ -288,7 +288,7 @@ def test_lds_identity_outside_window() -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_continuous_generation_agrees_with_dpv_grid(fs) -> None:
-    """r05 Sec. 4, Eq. (10): the exact optical depth agrees with dPV's left-Riemann G.
+    """r06 Sec. 4, Eq. (10): the exact optical depth agrees with dPV's left-Riemann G.
 
     Exact (1e-12) in E1, one material; within 1e-3 of max G with heterointerfaces,
     away from the interface node itself, whose layer dPV assigns by rounding.
@@ -306,7 +306,7 @@ def test_continuous_generation_agrees_with_dpv_grid(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_standard_spectrum_power(fs) -> None:
-    """r05 Sec. 4-5, Eq. (14): denominator = standard spectrum power (~899.9 W/m^2), also in E4."""
+    """r06 Sec. 4-5, Eq. (14): denominator = standard spectrum power (~899.9 W/m^2), also in E4."""
     for dev in sample(fs):
         assert abs(optics.standard_power() - dev.attrs["P_in_std"]) < 1e-9
         _, P = optics.spectrum(dev.family, dev.xi)
@@ -317,7 +317,7 @@ def test_standard_spectrum_power(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_pce_matches_dpv_dataset(fs) -> None:
-    """r05 Sec. 5, Eq. (14): calcPmax reimplemented here reproduces the stored PCE, Voc, Jsc, FF."""
+    """r06 Sec. 5, Eq. (14): calcPmax reimplemented here reproduces the stored PCE, Voc, Jsc, FF."""
     for dev in sample(fs):
         s = contacts.jv_summary(dev.V, dev.J)
         assert abs(s["pce"] - dev.pce) < 1e-12
@@ -331,7 +331,7 @@ def test_pce_matches_dpv_dataset(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_terminal_current_matches_dpv(fs) -> None:
-    """r05 Sec. 5, Eq. (13): the stored J is J_0 times the mean of Jn + Jp, as current.total_current."""
+    """r06 Sec. 5, Eq. (13): the stored J is J_0 times the mean of Jn + Jp, as current.total_current."""
     for dev in sample(fs):
         j = np.asarray(contacts.terminal_current(dev.Jn, dev.Jp))
         assert np.max(np.abs(j - dev.J)) < 1e-12 * np.max(np.abs(dev.J))
@@ -340,7 +340,7 @@ def test_terminal_current_matches_dpv(fs) -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_contact_potentials_match_dpv(fs) -> None:
-    """r05 Sec. 5, Eq. (11): phi_eq(0), phi_eq(1) close dPV's equilibrium, and phi(1) = phi_eq(1) + V~."""
+    """r06 Sec. 5, Eq. (11): phi_eq(0), phi_eq(1) close dPV's equilibrium, and phi(1) = phi_eq(1) + V~."""
     for dev in sample(fs):
         nd = nodes_of(dev)
         phi0 = float(contacts.contact_potential({k: v[0] for k, v in nd.items()}))
@@ -351,7 +351,7 @@ def test_contact_potentials_match_dpv(fs) -> None:
 
 
 def test_contact_residuals_vanish_on_equilibrium_densities() -> None:
-    """r05 Sec. 5, Eq. (12): at equilibrium (flat phi_n = phi_p = 0, n = n_eq) every B vanishes,
+    """r06 Sec. 5, Eq. (12): at equilibrium (flat phi_n = phi_p = 0, n = n_eq) every B vanishes,
     and a carrier excess at a contact with S > 0 makes its B nonzero."""
     mat = {"Nc": 0.08, "Nv": 1.8, "Chi": 150.9, "Eg": 58.0, "mn": 100.0, "mp": 100.0, "Ndop": 0.01}
     mat1 = dict(mat, Ndop=-0.01)
@@ -373,7 +373,7 @@ def test_contact_residuals_vanish_on_equilibrium_densities() -> None:
 
 
 def test_calcpmax_exact_on_quadratic_power() -> None:
-    """r05 Sec. 5, Eq. (14): the spline is exact when V J is linear in V, and its vertex is found
+    """r06 Sec. 5, Eq. (14): the spline is exact when V J is linear in V, and its vertex is found
     when the maximum falls inside a piece (a = 0 on the first piece, dPV's closure)."""
     v = np.linspace(0.0, 1.0, 21)
     j = 2.0 - 0.0 * v  # P = 2 V: linear, maximum at the last node
@@ -387,7 +387,7 @@ def test_calcpmax_exact_on_quadratic_power() -> None:
 @needs_dataset
 @pytest.mark.parametrize("fs", FAMILY_STAGES)
 def test_sweep_stops_like_dpv(fs) -> None:
-    """r05 Sec. 5: V_j = j 0.05 V from 0, stopped at the first sign change, as dPV's simulate."""
+    """r06 Sec. 5: V_j = j 0.05 V from 0, stopped at the first sign change, as dPV's simulate."""
     for dev in sample(fs):
         assert contacts.sweep_length(dev.J) == len(dev.V)
         assert np.max(np.abs(contacts.voltages(len(dev.V)) - dev.V)) < 1e-12

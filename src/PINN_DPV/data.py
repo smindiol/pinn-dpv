@@ -10,7 +10,7 @@ node), reads the HDF5 files, and partitions devices 80/10/10 with the seed of
 each run (Sec. 7; never by point or by voltage). Corners of the xi hypercube
 always go to test (Sec. 7).
 
-Deviations from r05 that the dataset card fixes and this module follows: the
+Deviations from r06 that the dataset card fixes and this module follows: the
 E3 nominal absorber is 500 nm, the HTM acceptor ceiling is 1.87e18, and E2/E4
 use ex2's graded mesh with 4x its nodes.
 """
@@ -27,7 +27,7 @@ import numpy as np
 from PINN_DPV import scaling
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
     "sections": ["7", "8"],
     "equations": [],
     "invariants": [

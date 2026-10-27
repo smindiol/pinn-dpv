@@ -7,7 +7,7 @@ test under tests/.
 
 import jax
 
-# r05 Sec. 8: double precision throughout, as in dPV, because delta^2 reaches
+# r06 Sec. 8: double precision throughout, as in dPV, because delta^2 reaches
 # 1e-9. Set before any array is created by this package.
 jax.config.update("jax_enable_x64", True)
 
@@ -20,8 +20,8 @@ __implementation__ = {
     # document label instead, so each skill reads its own lineage:
     #     "revision": {"proposal": "<filename>", "<label>": "<filename>"},
     "revision": {
-        "proposal": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
-        "experiments": "experiments-protocolo-experimental-del-benchmark-pinn-sobre-dpv-v01.md",
+        "proposal": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
+        "experiments": "experiments-protocolo-experimental-del-benchmark-pinn-sobre-dpv-v02.md",
     },
 
     # What kind of prediction the protocol assumes, over which unit,
@@ -199,6 +199,19 @@ __steps__ = {
         "produces": ["Results/sigma", "Notebooks/sigma.ipynb"],
         "placement": "remote",
         "job": "sigma",
+        "service": "kaggle",
+    },
+    # Experiments v02, E0: the screening of r06's formulation on Kaggle T4s, one
+    # group per account and session (loss-init, arch, size, voltage-interfaces).
+    # Computes its own sigma on the screening pool, so it reads nothing upstream.
+    "screen": {
+        "module": "PINN_DPV.steps",
+        "function": "run_screen",
+        "advances": 1,
+        "reads": [],
+        "produces": ["Results/screen"],
+        "placement": "remote",
+        "job": "screen",
         "service": "kaggle",
     },
     # E0's pilot: E1A and E3A, seeds 0-2, fixed weights, full J-V curve.

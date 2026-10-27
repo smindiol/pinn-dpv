@@ -27,7 +27,7 @@ import numpy as np
 from PINN_DPV import data, evaluation, loss, persistence, scaling, training
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
     "sections": ["7", "8", "9"],
     "equations": ["3", "21", "23"],
     "invariants": [
@@ -35,6 +35,8 @@ __provenance__ = {
         "pilot_config_matches_protocol",
         "budget_rule_stops_where_drop_falls_below_half_r",
         "initial_component_spread_is_log10_max_over_min",
+        "screen_verdicts_follow_caps",
+        "batch_rule_halves_only_on_out_of_memory",
     ],
 }
 
@@ -226,7 +228,8 @@ def run_one(cfg: training.TrainConfig, out_root=PILOT_DIR, sigma_dir=SIGMA_DIR, 
                                       "history_tail": st["history"][-3:], "memory": _memory()})
         sync(st, voltage_done)
 
-    state = training.train(setup, state, callback, models_dir=keep_models_dir)
+    state = _train_with_batch_rule(setup, state, callback, run_dir, keep_models_dir, root, sigma_dir)
+    setup = state.pop("_setup", setup)
     summary = training.summarize(setup, state)
     persistence.write_json(run_dir, "summary.json", summary)
     sync.push(with_results=True)
@@ -234,6 +237,40 @@ def run_one(cfg: training.TrainConfig, out_root=PILOT_DIR, sigma_dir=SIGMA_DIR, 
     if progress:
         progress.end_run()
     return summary
+
+
+def _out_of_memory(exc) -> bool:
+    return "RESOURCE_EXHAUSTED" in str(exc) or "out of memory" in str(exc).lower()
+
+
+def _train_with_batch_rule(setup, state, callback, run_dir, models_dir, root, sigma_dir):
+    """Experiments v02 batch rule: N_Q is halved only when the device runs out of memory.
+
+    The run resumes from its last checkpoint with the smaller batch; every change is
+    recorded in the state ("batch_events") and reported as a covariate.
+    """
+    from dataclasses import replace
+
+    while True:
+        try:
+            state = training.train(setup, state, callback, models_dir=models_dir)
+            state["_setup"] = setup
+            return state
+        except Exception as exc:  # noqa: BLE001
+            if not _out_of_memory(exc) or setup.cfg.n_q <= 64:
+                raise
+            new_q = setup.cfg.n_q // 2
+            print(f"[batch] out of memory at N_Q={setup.cfg.n_q}; resuming with N_Q={new_q}", flush=True)
+            last = persistence.load_checkpoint(run_dir)
+            events = (state or {}).get("batch_events", []) + [
+                {"stage": (last or {}).get("stage"), "j": (last or {}).get("j"),
+                 "from_n_q": setup.cfg.n_q, "to_n_q": new_q}]
+            cfg = replace(setup.cfg, n_q=new_q)
+            setup = training.prepare(cfg, load_sigma(cfg.family_stage, cfg.seed, sigma_dir), root)
+            state = last
+            if state is not None:
+                state["batch_events"] = events
+                state["cfg"]["n_q"] = new_q
 
 
 def _memory():
@@ -326,6 +363,133 @@ def smoke_pilot(seeds=(0,), max_devices=60):
                             "initial_component_spread": spread})
     return {"runs": len(summaries), "nonfinite": sum(s["nonfinite"] for s in summaries),
             "max_log10_spread": max((r["log10_spread"] for r in spread), default=float("nan"))}
+
+
+# --- E0 screening (experiments v02) ----------------------------------------------------------
+SCREEN_DIR = str(RESULTS_ROOT / "screen")
+#: What every screening run shares: r06's base (Fourier features, log loss, equilibrium
+#: start, continuation) at a short budget on a fixed pool of devices, seed 0.
+SCREEN_BASE = dict(seed=0, strategy="fixed", k_s=0, fourier_features=64, fourier_scale=5.0,
+                   width=256, depth=4, n_q=512, adam_iters=1000, lbfgs_iters=50, device_pool=400,
+                   checkpoint_every=250, loss_form="log1p", qf_start="equilibrium", v_input=False)
+#: One group per Kaggle session; each entry overrides SCREEN_BASE (family_stage required).
+SCREEN_GROUPS = {
+    "loss-init": [dict(family_stage="E1A"),
+                  dict(family_stage="E1A", loss_form="linear"),
+                  dict(family_stage="E1A", qf_start="random"),
+                  dict(family_stage="E1A", loss_form="linear", qf_start="random")],
+    "arch": [dict(family_stage="E1A", fourier_features=0),
+             dict(family_stage="E1A", fourier_scale=1.0),
+             dict(family_stage="E1A", fourier_scale=10.0),
+             dict(family_stage="E1A", fourier_scale=20.0)],
+    "size": [dict(family_stage="E1A", width=128, depth=4),
+             dict(family_stage="E1A", width=256, depth=6),
+             dict(family_stage="E1A", width=512, depth=4),
+             dict(family_stage="E1A", width=512, depth=6)],
+    "voltage-interfaces": [dict(family_stage="E1A", v_input=True),
+                           dict(family_stage="E3A"),
+                           dict(family_stage="E3A", v_input=True),
+                           dict(family_stage="E3A", loss_form="linear", qf_start="random")],
+}
+SCREEN_SHARE_CAP = 0.9  # hypothesis (ii): no component above 90 % of the gradient norm
+SCREEN_START_CAP = 10.0  # hypothesis (i): no active s_i above 10 when a regime starts
+
+
+def screen_config(overrides: dict) -> training.TrainConfig:
+    base = dict(SCREEN_BASE)
+    base.update(overrides)
+    return training.TrainConfig(**base)
+
+
+def screen_verdicts(summary: dict) -> dict:
+    """E0's three hypotheses for one run, from its summary (experiments v02)."""
+    starts = [max(c["s"].values()) for c in summary.get("initial_components", []) if c["s"]]
+    early = [max(g["share"]) for g in summary.get("grad_shares", []) if g["it"] <= 500]
+    return {"max_initial_s": max(starts) if starts else float("nan"),
+            "h_i_initial_bounded": bool(starts) and max(starts) <= SCREEN_START_CAP,
+            "max_early_grad_share": max(early) if early else float("nan"),
+            "h_ii_no_dominant_gradient": bool(early) and max(early) <= SCREEN_SHARE_CAP,
+            "h_iii_finite_and_nonzero": summary.get("nonfinite", 1) == 0 and summary.get("zero_components", 1) == 0}
+
+
+def run_screen(group: str, push: bool = False, groups=None):
+    """Remote step (Kaggle GPU): one screening group, its runs one after another, resumable.
+
+    sigma is recomputed on the same device pool the runs split (SG floor, r06 Eq. 23),
+    so sigma never sees a validation or test device. Writes screen/<group>.json.
+    """
+    plan = (groups or SCREEN_GROUPS)[group]
+    family_stages = sorted({o["family_stage"] for o in plan})
+    data.ensure_dataset(family_stages)
+    pools = {o.get("device_pool", SCREEN_BASE["device_pool"]) for o in plan}
+    if len(pools) != 1:
+        raise ValueError(f"a screening group shares one device pool, got {sorted(pools)}")
+    pool = pools.pop()
+    sigma_dir = os.path.join(SCREEN_DIR, f"sigma-pool{pool}")
+    for fs in family_stages:
+        if not os.path.exists(os.path.join(sigma_dir, f"{fs}_seed0.json")):
+            compute_sigma(fs, seeds=(0,), out_dir=sigma_dir, max_devices=pool)
+    token = persistence.github_token() if push else None
+    remote_url = f"https://github.com/{REPO}.git" if push and token else None
+    progress = Progress(len(plan), f"screen:{group}")
+    rows = []
+    for o in plan:
+        cfg = screen_config(o)
+        cfg = training.TrainConfig(**{**asdict(cfg), "run_id": f"screen-{cfg.resolved_run_id()}"})
+        try:
+            summ = run_one(cfg, out_root=SCREEN_DIR, sigma_dir=sigma_dir, remote_url=remote_url,
+                           token=token, progress=progress)
+        except Exception as exc:  # noqa: BLE001 -- one failed run never costs the group
+            print(f"[screen] {cfg.run_id} FAILED: {exc!r}", flush=True)
+            rows.append({"run_id": cfg.run_id, "overrides": o, "error": repr(exc)})
+            continue
+        row = {"run_id": summ["run_id"], "overrides": o, "seconds": summ["seconds"],
+               "mean_e_pce_val": summ["mean_e_pce_val"], "mean_e_pce_test": summ["mean_e_pce_test"],
+               "mean_e_pce_corners": summ["mean_e_pce_corners"],
+               **{k: summ[k] for k in summ if k.startswith("mean_e_phi")},
+               "nonfinite": summ["nonfinite"], "zero_components": summ["zero_components"],
+               "batch_events": summ["batch_events"], "n_q_final": summ["n_q_final"],
+               **screen_verdicts(summ)}
+        rows.append(row)
+        print("[screen] " + json.dumps(row), flush=True)
+        persistence.write_json(SCREEN_DIR, f"{group}.json", {"group": group, "rows": rows})
+    floor = {fs: load_sigma(fs, 0, sigma_dir) for fs in family_stages}
+    out = {"group": group, "rows": rows,
+           "floor_over_sigma2": {fs: {c: r["floor"][c] / r["sigma2"][c] for c in r["sigma2"] if r["sigma2"][c]}
+                                 for fs, r in floor.items()},
+           "r_pp": {fs: r["reference_floor"]["r_pp"] for fs, r in floor.items()}}
+    persistence.write_json(SCREEN_DIR, f"{group}.json", out)
+    return out
+
+
+def selftest(paths=("tests/test_invariants_model.py",)) -> dict:
+    """Run the target's own invariant tests where the screening runs (never on the operator's PC).
+
+    Returns pytest's exit code and the tail of its report; never raises, so the
+    rehearsal that follows still runs and both results come back together.
+    """
+    import subprocess
+    import sys
+
+    env = dict(os.environ, PYTHONPATH=str(REPO_ROOT / "src"), XLA_PYTHON_CLIENT_PREALLOCATE="false")
+    proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *paths],
+                          cwd=str(REPO_ROOT), env=env, capture_output=True, text=True)
+    tail = (proc.stdout + proc.stderr)[-6000:]
+    print(tail, flush=True)
+    out = {"returncode": proc.returncode, "tail": tail}
+    persistence.write_json(SCREEN_DIR, "selftest.json", out)
+    return out
+
+
+def smoke_screen(group: str, tests: bool = True):
+    """Rehearsal of `screen`: the invariant tests, then the group's first run at a tiny budget."""
+    # The model tests read E1A and E3A whatever the group screens.
+    data.ensure_dataset(sorted({"E1A", "E3A"} | {o["family_stage"] for o in SCREEN_GROUPS[group]}))
+    result = {"selftest": selftest() if tests else None}
+    first = dict(SCREEN_GROUPS[group][0])
+    first.update(adam_iters=20, lbfgs_iters=2, device_pool=40, max_voltages=2, grad_share_marks=(1, 10))
+    result["screen"] = run_screen(group, groups={group: [first]})
+    return result
 
 
 # --- report -------------------------------------------------------------------------------------

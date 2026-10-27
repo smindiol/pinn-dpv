@@ -15,7 +15,7 @@ import jax.numpy as jnp
 from PINN_DPV import physics
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
     "sections": ["3", "8"],
     "equations": ["22", "24"],
     "invariants": [

@@ -22,7 +22,7 @@ from scipy import stats
 from PINN_DPV import contacts, loss, physics, scaling
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
     "sections": ["8", "9"],
     "equations": ["13", "14", "20", "21"],
     "invariants": [

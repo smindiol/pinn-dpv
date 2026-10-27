@@ -17,7 +17,7 @@ import math
 import optuna
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
     "sections": ["6"],
     "equations": ["19"],
     "invariants": [

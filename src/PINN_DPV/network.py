@@ -6,8 +6,14 @@ Eq. (24): u_hat(x_hat, xi_hat) = U(x_hat, rho_1, ..., rho_Nint, xi_hat) with
 rho_m = |x_hat - x_hat_m(xi)|, so u_hat is continuous at x_hat_m and its x-derivative
 may jump by 2 dU/drho_m; the one-sided traces are dU/dx +- dU/drho_m, exact by
 automatic differentiation.
-Fourier variant (Sec. 8): x_hat alone is projected on random sinusoidal features
+Fourier features (Sec. 8, the base architecture in r06; the plain perceptron is the
+control): x_hat alone is projected on sin/cos(2 pi b_l x_hat) with random fixed b_l
 before the first layer; rho_m and xi_hat enter unprojected.
+Voltage as input (Sec. 8 variant): one network for the whole curve receives
+V_hat = V / V_max in [0, 1] unprojected; every input is on a comparable scale:
+x_hat, xi_hat, rho_m, V_hat in [0, 1], the Fourier features in [-1, 1].
+Equilibrium start (A2 step 2): the last-layer rows of u_phi_n, u_phi_p are zeroed
+and their bias set to -Y_min / (Y_max - Y_min), so that phi_n = phi_p = 0.
 Gummel alternation (Sec. 6, strategy 6): two networks, one for phi and one for
 (phi_n, phi_p).
 The potentials follow Eq. (3): phi with the hard Dirichlet constraint, phi_n and
@@ -25,7 +31,7 @@ import numpy as np
 from PINN_DPV import scaling
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
     "sections": ["2", "6", "8"],
     "equations": ["3", "24"],
     "invariants": [
@@ -34,6 +40,8 @@ __provenance__ = {
         "plain_network_when_no_interface",
         "kaiming_initialization_scale",
         "potentials_meet_dirichlet_for_any_weights",
+        "equilibrium_start_gives_zero_quasi_fermi",
+        "voltage_input_on_unit_interval",
     ],
 }
 
@@ -47,11 +55,16 @@ class NetConfig:
     fourier_features: int = 0  # 0: base architecture; >0: Fourier variant on x_hat
     fourier_scale: float = 1.0
     split: bool = False  # True: Gummel alternation, separate phi and (phi_n, phi_p) networks
+    v_max: float = 0.0  # > 0: voltage-as-input variant, V_hat = V_tilde / v_max (V_tilde units)
+
+    @property
+    def v_input(self) -> bool:
+        return self.v_max > 0
 
     @property
     def n_in(self) -> int:
         nx = 2 * self.fourier_features if self.fourier_features else 1
-        return nx + self.n_int + self.d_xi
+        return nx + self.n_int + self.d_xi + (1 if self.v_input else 0)
 
 
 def _mlp_init(key, sizes):
@@ -84,24 +97,27 @@ def init(key, cfg: NetConfig):
     return params
 
 
-def _features(params, cfg, x_hat, rho, xi_hat):
+def _features(params, cfg, x_hat, rho, xi_hat, v_hat=0.0):
     if cfg.fourier_features:
         arg = 2.0 * jnp.pi * jax.lax.stop_gradient(params["B"]) * x_hat
         fx = jnp.concatenate([jnp.sin(arg), jnp.cos(arg)])
     else:
         fx = jnp.atleast_1d(x_hat)
-    return jnp.concatenate([fx, jnp.atleast_1d(rho), xi_hat])
+    parts = [fx, jnp.atleast_1d(rho), xi_hat]
+    if cfg.v_input:
+        parts.append(jnp.atleast_1d(v_hat))
+    return jnp.concatenate(parts)
 
 
-def raw(params, cfg: NetConfig, x_hat, rho, xi_hat):
-    """U(x_hat, rho, xi_hat) in R^3 for explicit cusp inputs rho (shape (n_int,))."""
-    z = _features(params, cfg, x_hat, rho, xi_hat)
+def raw(params, cfg: NetConfig, x_hat, rho, xi_hat, v_hat=0.0):
+    """U(x_hat, rho, xi_hat[, V_hat]) in R^3 for explicit cusp inputs rho (shape (n_int,))."""
+    z = _features(params, cfg, x_hat, rho, xi_hat, v_hat)
     if cfg.split:
         return jnp.concatenate([_mlp_apply(params["phi"], z), _mlp_apply(params["qf"], z)])
     return _mlp_apply(params["all"], z)
 
 
-def u_hat(params, cfg: NetConfig, x_hat, xi_hat, x_m, side=None):
+def u_hat(params, cfg: NetConfig, x_hat, xi_hat, x_m, side=None, v_hat=0.0):
     """u_hat of Eq. (24) at one point.
 
     `side` selects a one-sided trace at an interface: None uses rho_m = |x - x_m|
@@ -110,7 +126,7 @@ def u_hat(params, cfg: NetConfig, x_hat, xi_hat, x_m, side=None):
     """
     diff = x_hat - x_m
     rho = jnp.abs(diff) if side is None else side * diff
-    return raw(params, cfg, x_hat, rho, xi_hat)
+    return raw(params, cfg, x_hat, rho, xi_hat, v_hat)
 
 
 @dataclass(frozen=True)
@@ -124,13 +140,37 @@ class OutputScales:
 def potentials(params, cfg: NetConfig, scales: OutputScales, x_hat, xi_hat, x_m,
                phi_eq0, phi_eq1, v_tilde, equilibrium=False, side=None):
     """(phi, phi_n, phi_p) of Eq. (3) at one point; phi_n = phi_p = 0 hard at equilibrium."""
-    u = u_hat(params, cfg, x_hat, xi_hat, x_m, side)
+    v_hat = v_tilde / cfg.v_max if cfg.v_input else 0.0
+    u = u_hat(params, cfg, x_hat, xi_hat, x_m, side, v_hat)
     phi = scaling.phi_from_output(x_hat, u[0], phi_eq0, phi_eq1, v_tilde, scales.d_phi)
     if equilibrium:
         return phi, 0.0 * phi, 0.0 * phi
     phi_n = scaling.quasi_fermi_from_output(u[1], scales.y_min[0], scales.y_max[0])
     phi_p = scaling.quasi_fermi_from_output(u[2], scales.y_min[1], scales.y_max[1])
     return phi, phi_n, phi_p
+
+
+def equilibrium_start(params, cfg: NetConfig, scales: OutputScales):
+    """A2 step 2 (r06): phi_n = phi_p = 0 exactly, the equilibrium solution of step 1.
+
+    The last-layer weights of u_phi_n, u_phi_p are zeroed and their biases set to
+    -Y_min / (Y_max - Y_min); this needs Y_min <= 0 <= Y_max for both.
+    """
+    lo, hi = np.asarray(scales.y_min, float), np.asarray(scales.y_max, float)
+    if np.any(lo > 0) or np.any(hi < 0):
+        raise ValueError(f"equilibrium start needs Y_min <= 0 <= Y_max, got {lo}, {hi}")
+    bias = jnp.asarray(-lo / (hi - lo))
+    params = dict(params)
+    if cfg.split:
+        last = dict(params["qf"][-1])
+        last["W"], last["b"] = jnp.zeros_like(last["W"]), bias
+        params["qf"] = params["qf"][:-1] + [last]
+    else:
+        last = dict(params["all"][-1])
+        last["W"] = last["W"].at[:, 1:].set(0.0)
+        last["b"] = last["b"].at[1:].set(bias)
+        params["all"] = params["all"][:-1] + [last]
+    return params
 
 
 def count_parameters(params) -> int:

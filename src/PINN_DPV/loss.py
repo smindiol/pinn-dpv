@@ -1,6 +1,6 @@
 """The doubly weighted loss and the per-component scales and floors.
 
-Eq. (15): L(theta; V_j) = sum_i lambda_i / sigma_i^2 L_i over
+Eq. (15): L(theta; V_j) = sum_i lambda_i log(1 + L_i / sigma_i^2) over
 I = {Poisson, n, p, BCn, BCp, int_phi, int_n, int_p, dat}: bulk residuals
 averaged over N_Q collocation points in (x_hat, xi_hat), contact terms
 <B_0^2 + B_1^2> and interface terms <sum_m [F_k]^2> averaged over the devices of
@@ -9,8 +9,15 @@ that normalizes its output in Eq. (3) (sigma_dat = 1). R_J is not a component.
 Eq. (23): sigma_i^2 = < 1/N_g sum_g (sum_q |T_iq|)^2 > and
 L_i^floor = < 1/N_g sum_g R_i^2 >, over the training subset and every voltage,
 with the network's own continuous operators applied to a per-layer cubic
-interpolant of dPV's potentials at its grid nodes: layer interiors for bulk
-residuals, contacts for Eq. (12), lateral traces at x_hat_m for Eq. (22).
+interpolant of dPV's potentials at its grid nodes for Poisson (layer interiors),
+the contacts of Eq. (12) and the int_phi trace at x_hat_m; and with dPV's own
+Scharfetter-Gummel edge currents for n, p, int_n and int_p: the divergence term is
+the difference of the currents of a node's two edges over the distance between
+their midpoints, and a current jump is the difference between the edges on both
+sides of x_hat_m. The continuous operator on the interpolant left
+L^floor / sigma^2 ~ 1 for those components in the Kaggle rehearsal.
+The log(1 + .) compression keeps a gradient grad L_i / (sigma_i^2 + L_i) that
+never vanishes while grad L_i does not; the linear form is kept for E0's control.
 
 Every component is computed from one function returning its additive terms
 T_iq; the loss sums them and the scale sums their magnitudes, so the two can
@@ -29,7 +36,7 @@ from scipy.interpolate import CubicSpline
 from PINN_DPV import contacts, interfaces, network, optics, physics, scaling  # noqa: F401
 
 __provenance__ = {
-    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r05.md",
+    "revision": "research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r06.md",
     "sections": ["6"],
     "equations": ["15", "23"],
     "invariants": [
@@ -38,6 +45,9 @@ __provenance__ = {
         "spline_fields_interpolate_nodes",
         "sigma_bounds_residual",
         "data_term_zero_on_reference",
+        "log_loss_matches_linear_near_reference",
+        "log_loss_gradient_never_vanishes",
+        "sg_floor_small_on_dpv_profiles",
     ],
 }
 
@@ -137,34 +147,37 @@ def components(params, prob: Problem, batch, v_tilde, equilibrium=False):
     "ref": (B, 3, K_s)} for the data term.
     """
     fs = prob.fs
+    # Voltage-as-input stage: every point and device carries its own V_tilde.
+    vq = batch.get("vq", jnp.broadcast_to(jnp.asarray(v_tilde, float), batch["xq"].shape))
+    vb = batch.get("vb", jnp.broadcast_to(jnp.asarray(v_tilde, float), batch["xib"].shape[:1]))
 
-    def interior(x, xi):
+    def interior(x, xi, v):
         dev = device(fs, xi)
-        tp, tn, tpp = bulk_terms(net_fields(params, prob, xi, dev, v_tilde, equilibrium), x, fs, dev,
+        tp, tn, tpp = bulk_terms(net_fields(params, prob, xi, dev, v, equilibrium), x, fs, dev,
                                  equilibrium)
         return jnp.sum(tp), jnp.sum(tn), jnp.sum(tpp)
 
-    rp, rn, rpp = jax.vmap(interior)(batch["xq"], batch["xiq"])
+    rp, rn, rpp = jax.vmap(interior)(batch["xq"], batch["xiq"], vq)
     out = {"Poisson": jnp.mean(rp**2)}
     if not equilibrium:
         out["n"], out["p"] = jnp.mean(rn**2), jnp.mean(rpp**2)
 
-        def bc(xi):
+        def bc(xi, v):
             dev = device(fs, xi)
-            bn, bp = contact_terms(net_fields(params, prob, xi, dev, v_tilde), fs, dev)
+            bn, bp = contact_terms(net_fields(params, prob, xi, dev, v), fs, dev)
             return jnp.sum(jnp.sum(bn, -1) ** 2), jnp.sum(jnp.sum(bp, -1) ** 2)
 
-        lbn, lbp = jax.vmap(bc)(batch["xib"])
+        lbn, lbp = jax.vmap(bc)(batch["xib"], vb)
         out["BCn"], out["BCp"] = jnp.mean(lbn), jnp.mean(lbp)
 
     if fs.n_int:
-        def jumps(xi):
+        def jumps(xi, v):
             dev = device(fs, xi)
-            sf = lambda s: net_fields(params, prob, xi, dev, v_tilde, equilibrium, side=s)  # noqa: E731
+            sf = lambda s: net_fields(params, prob, xi, dev, v, equilibrium, side=s)  # noqa: E731
             t = interface_terms(sf, fs, dev)
             return jnp.sum(jnp.sum(t, -1) ** 2, axis=0)  # (3,): sum over interfaces
 
-        j = jnp.mean(jax.vmap(jumps)(batch["xib"]), axis=0)
+        j = jnp.mean(jax.vmap(jumps)(batch["xib"], vb), axis=0)
         out["int_phi"] = j[0]
         if not equilibrium:
             out["int_n"], out["int_p"] = j[1], j[2]
@@ -189,9 +202,21 @@ def data_term(params, prob: Problem, batch, v_tilde):
     return jnp.mean(jax.vmap(one)(batch["xid"], batch["xs"], batch["ref"]))
 
 
-def total(comps: dict, lambdas: dict, sigma2: dict):
-    """Eq. (15): sum_i lambda_i / sigma_i^2 L_i over the components present."""
-    return sum(lambdas[k] / sigma2.get(k, 1.0) * v for k, v in comps.items())
+LOSS_FORMS = ("log1p", "linear")
+
+
+def compress(scaled, form: str = "log1p"):
+    """ell_i of Eq. (15) from s_i = L_i / sigma_i^2: log(1 + s_i), or s_i itself (E0 control)."""
+    if form == "log1p":
+        return jnp.log1p(scaled)
+    if form == "linear":
+        return scaled
+    raise ValueError(f"unknown loss form {form!r}; expected one of {LOSS_FORMS}")
+
+
+def total(comps: dict, lambdas: dict, sigma2: dict, form: str = "log1p"):
+    """Eq. (15): sum_i lambda_i log(1 + L_i / sigma_i^2) over the components present."""
+    return sum(lambdas[k] * compress(v / sigma2.get(k, 1.0), form) for k, v in comps.items())
 
 
 # --- Eq. (23): reference fields from dPV profiles ----------------------------------
@@ -233,14 +258,14 @@ def spline_fields(bps, coef, layer):
 def _reference_core(fs, equilibrium):
     """Jitted Eq. (23) evaluation for one family-stage at fixed grid shape."""
 
-    def core(xi_hat, x_hat, layer_index, interior, bps, coef):
+    def core(xi_hat, x_hat, x_debye, layer_index, interior, bps, coef, pots, jn, jp):
         dev = device(fs, xi_hat)
 
         def bulk(x, layer):
             f = spline_fields(bps, coef, layer)
             return bulk_terms(f, x, fs, dev, equilibrium)
 
-        tp, tn, tpp = jax.vmap(bulk)(x_hat, layer_index)
+        tp, _, _ = jax.vmap(bulk)(x_hat, layer_index)
         w = interior / jnp.sum(interior)
 
         def stats(t):  # mean over interior nodes of (sum|T|)^2 and R^2
@@ -248,6 +273,7 @@ def _reference_core(fs, equilibrium):
 
         out = {"Poisson": stats(tp)}
         if not equilibrium:
+            tn, tpp = sg_continuity_terms(fs, dev, x_hat, x_debye, layer_index, pots, jn, jp)
             out["n"], out["p"] = stats(tn), stats(tpp)
             f0 = spline_fields(bps, coef, 0)
             f1 = spline_fields(bps, coef, fs.n_layers - 1)
@@ -255,6 +281,11 @@ def _reference_core(fs, equilibrium):
             bn, bp = contact_terms(both, fs, dev)
             for name, t in (("BCn", bn), ("BCp", bp)):
                 out[name] = (jnp.mean(jnp.sum(jnp.abs(t), -1) ** 2), jnp.mean(jnp.sum(t, -1) ** 2))
+        if fs.n_int and not equilibrium:
+            jumps = sg_interface_terms(fs, dev, x_hat, jn, jp)  # (n_int, 2 carriers, 2 sides)
+            for i, name in enumerate(("int_n", "int_p")):
+                ti = jumps[:, i, :]
+                out[name] = (jnp.mean(jnp.sum(jnp.abs(ti), -1) ** 2), jnp.mean(jnp.sum(ti, -1) ** 2))
         if fs.n_int:
             lat_all = []
             for m in range(fs.n_int):
@@ -265,17 +296,49 @@ def _reference_core(fs, equilibrium):
                 lat = []
                 for f, mat in ((fr, mat_r), (fl, mat_l)):
                     dphi = jax.grad(lambda x: f(x)[0])(xm_m)
-                    jn, jp = physics.currents(f, xm_m, mat, dev["delta"])
-                    lat.append(jnp.stack([mat["eps"] * dphi, jn, jp]))
-                lat_all.append(jnp.stack([lat[0], -lat[1]], axis=-1))  # (3, 2)
-            t = jnp.stack(lat_all)  # (n_int, 3, 2)
-            names = ("int_phi",) if equilibrium else ("int_phi", "int_n", "int_p")
-            for i, name in enumerate(names):
-                ti = t[:, i, :]
-                out[name] = (jnp.mean(jnp.sum(jnp.abs(ti), -1) ** 2), jnp.mean(jnp.sum(ti, -1) ** 2))
+                    lat.append(mat["eps"] * dphi)
+                lat_all.append(jnp.stack([lat[0], -lat[1]]))  # (2,)
+            ti = jnp.stack(lat_all)  # (n_int, 2)
+            out["int_phi"] = (jnp.mean(jnp.sum(jnp.abs(ti), -1) ** 2), jnp.mean(jnp.sum(ti, -1) ** 2))
         return out
 
     return jax.jit(core)
+
+
+def sg_continuity_terms(fs, dev, x_hat, x_debye, layer_index, pots, jn, jp):
+    """Terms of R_n, R_p (Eq. 7) at each node from dPV's Scharfetter-Gummel edge currents.
+
+    The divergence term is (J_g - J_{g-1}) / dxbar_g in Debye units, which is
+    delta dJ/dx_hat; G and R are evaluated at the node exactly as `bulk_terms` does.
+    Values at the first and last node are padding; `interior` masks them out.
+    """
+    dg = jnp.diff(x_debye)
+    dxbar = jnp.concatenate([dg[:1], (dg[:-1] + dg[1:]) / 2, dg[-1:]])
+    div_n = jnp.concatenate([jnp.zeros(1), jnp.diff(jn), jnp.zeros(1)]) / dxbar
+    div_p = jnp.concatenate([jnp.zeros(1), jnp.diff(jp), jnp.zeros(1)]) / dxbar
+
+    def node(x, layer, u):
+        mat = fs.material(layer, dev["ndop"])
+        g = optics.generation_jax(fs, x, dev)
+        n, p = physics.densities(u[0], u[1], u[2], mat)
+        r = physics.recombination(n, p, mat)
+        return g, r
+
+    g, r = jax.vmap(node)(x_hat, layer_index, pots.T)
+    tn = jnp.stack([div_n, g, -r], axis=-1)
+    tpp = jnp.stack([div_p, -g, r], axis=-1)
+    return tn, tpp
+
+
+def sg_interface_terms(fs, dev, x_hat, jn, jp):
+    """(J(x_m^+), -J(x_m^-)) for n and p at each interface, from the edges either side of
+    the edge that spans x_hat_m: shape (n_int, 2, 2)."""
+    out = []
+    for m in range(fs.n_int):
+        e = jnp.searchsorted(x_hat, dev["x_m"][m], side="left") - 1  # edge spanning x_m
+        e = jnp.clip(e, 1, jn.shape[0] - 2)
+        out.append(jnp.stack([jnp.stack([jn[e + 1], -jn[e - 1]]), jnp.stack([jp[e + 1], -jp[e - 1]])]))
+    return jnp.stack(out)
 
 
 _CORES = {}
@@ -301,8 +364,13 @@ def reference_terms(fs, dev_ref, xi_hat, k, equilibrium=False):
     for layer in range(fs.n_layers):
         idx = np.flatnonzero(layer_index == layer)
         interior[idx[1:-1]] = 1.0
-    out = _CORES[key](jnp.asarray(xi_hat), jnp.asarray(x_hat), jnp.asarray(layer_index),
-                      jnp.asarray(interior), bps, coef)
+    if equilibrium:
+        jn = jp = np.zeros(x_hat.size - 1)
+    else:
+        jn, jp = dev_ref.Jn[k], dev_ref.Jp[k]
+    out = _CORES[key](jnp.asarray(xi_hat), jnp.asarray(x_hat), jnp.asarray(dev_ref.x),
+                      jnp.asarray(layer_index), jnp.asarray(interior), bps, coef, jnp.asarray(pots),
+                      jnp.asarray(jn), jnp.asarray(jp))
     return {c: (float(a), float(b)) for c, (a, b) in out.items()}
 
 

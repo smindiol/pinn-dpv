@@ -391,6 +391,14 @@ SCREEN_GROUPS = {
                            dict(family_stage="E3A", v_input=True),
                            dict(family_stage="E3A", loss_form="linear", qf_start="random")],
 }
+#: The protocol's four groups, each run as two Kaggle sessions of two runs ("-a", "-b"),
+#: so the 16 runs fit the four accounts' two concurrent sessions in one night. The
+#: halves pair a heavy run with a light one where sizes differ.
+_HALVES = {"size": ((0, 3), (1, 2))}
+for _g, _runs in list(SCREEN_GROUPS.items()):
+    _a, _b = _HALVES.get(_g, ((0, 1), (2, 3)))
+    SCREEN_GROUPS[f"{_g}-a"] = [_runs[i] for i in _a]
+    SCREEN_GROUPS[f"{_g}-b"] = [_runs[i] for i in _b]
 SCREEN_SHARE_CAP = 0.9  # hypothesis (ii): no component above 90 % of the gradient norm
 SCREEN_START_CAP = 10.0  # hypothesis (i): no active s_i above 10 when a regime starts
 

@@ -420,7 +420,7 @@ def screen_verdicts(summary: dict) -> dict:
     """
     starts = [max(c["s"].values()) for c in summary.get("initial_components", []) if c["s"]]
     early = [max(g["share"]) for g in summary.get("grad_shares", [])
-             if g["it"] <= 500 and len(g["names"]) >= 2]
+             if g["it"] <= 500 and len(g["share"]) >= 2]
     return {"max_initial_s": max(starts) if starts else float("nan"),
             "h_i_initial_bounded": bool(starts) and max(starts) <= SCREEN_START_CAP,
             "max_early_grad_share": max(early) if early else float("nan"),

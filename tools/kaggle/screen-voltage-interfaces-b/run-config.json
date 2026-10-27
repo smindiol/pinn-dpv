@@ -1,0 +1,68 @@
+{
+  "accelerator": {
+    "architectures": [
+      "sm_75"
+    ],
+    "kind": "cuda"
+  },
+  "clonePaths": [
+    "src/PINN_DPV",
+    "tests",
+    "requirements.txt"
+  ],
+  "commit": "dfb4a4aa9a5333d611e1069847910d8e053d687e",
+  "environment": {
+    "install": {
+      "requirements": [
+        "jax[cuda12]==0.4.38",
+        "optax==0.2.4",
+        "chex==0.1.88",
+        "h5py>=3.10",
+        "optuna>=3.6",
+        "scipy>=1.15",
+        "kagglehub",
+        "pytest"
+      ]
+    }
+  },
+  "jobName": "screen-voltage-interfaces-b",
+  "product": "PINN-DPV",
+  "repo": {
+    "ref": "main",
+    "url": "https://github.com/smindiol/pinn-dpv.git"
+  },
+  "run": {
+    "function": "run_screen",
+    "kwargs": {
+      "group": "voltage-interfaces-b"
+    },
+    "module": "PINN_DPV.steps",
+    "smoke": {
+      "function": "smoke_screen",
+      "kwargs": {
+        "group": "voltage-interfaces-b"
+      },
+      "module": "PINN_DPV.steps"
+    }
+  },
+  "runnerTemplate": [
+    {
+      "path": "assets/runner_bootstrap.py",
+      "sha256": "b5767143f394dc80217522422bff6449466682ff5a62c60d7a73f04ac0052070"
+    },
+    {
+      "path": "assets/runner_invoke.py",
+      "sha256": "501cc19be51e4af0f331d30356b9361268b2da690a0798771adf33684f7080e8"
+    }
+  ],
+  "schemaVersion": 1,
+  "service": "kaggle",
+  "unresolvedReads": [
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:166: open(os.path.join(sigma_dir, f'{family_stage}_seed{seed}.json')) \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:519: open(path) \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/steps.py:531: open(path) \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/persistence.py:93: open(path, 'rb') \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/persistence.py:97: open(side) \u2014 open() call on a path that could not be resolved",
+    "/home/perelman/Documentos/TDG/implementations/pinn-dpv/src/PINN_DPV/persistence.py:269: open(path, 'rb') \u2014 open() call on a path that could not be resolved"
+  ]
+}

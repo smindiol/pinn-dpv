@@ -193,6 +193,24 @@ def dataset_root() -> str:
     return os.path.normpath(os.path.join(here, "..", "..", "..", "..", "dpv-dataset", "salidas"))
 
 
+KAGGLE_DATASET = "sgarizado/dpv-pinn-canonical"
+
+
+def ensure_dataset(slug: str = KAGGLE_DATASET) -> str:
+    """The data root, downloading the canonical files first when running inside a Kaggle
+    kernel that has them neither attached nor already downloaded. kagglehub authenticates
+    there as the kernel's own account, which the dataset is shared with."""
+    root = dataset_root()
+    if all(os.path.exists(p) for fs in CANONICAL_FILES for p in canonical_paths(fs, root)):
+        return root
+    if not os.path.isdir("/kaggle"):
+        return root
+    import kagglehub
+
+    os.environ["PINN_DPV_DATA"] = kagglehub.dataset_download(slug)
+    return dataset_root()
+
+
 def canonical_paths(family_stage: str, root: str | None = None):
     """The family-stage's files under root, laid out as dPV writes them (<run>/<file>) or
     flat (<file>), which is how the Kaggle dataset holds them."""

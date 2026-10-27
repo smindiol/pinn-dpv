@@ -266,9 +266,12 @@ def train(setup: Setup, state=None, callback=None, stop_after=None, models_dir=N
                 state["it"] = it + 1
                 if not eq and state["it"] in cfg.eval_marks:
                     _evaluate_mark(setup, state, j, state["it"])
-                if state["it"] % 100 == 0 or state["it"] == cfg.adam_iters:
+                # it == 1 records the components at the initial weights of this voltage
+                # (s is evaluated before the update): E0's question about their scale.
+                if state["it"] % 100 == 0 or state["it"] in (1, cfg.adam_iters):
                     state["history"].append({"stage": state["stage"], "j": j, "it": state["it"],
-                                             "loss": float(val), "s": [float(x) for x in s]})
+                                             "loss": float(val), "s": [float(x) for x in s],
+                                             "names": list(names)})
                 done_iters += 1
                 if callback and state["it"] % cfg.checkpoint_every == 0:
                     callback(state, False)
@@ -387,4 +390,11 @@ def summarize(setup: Setup, state) -> dict:
     corners = [k for k in setup.split["test"] if "/esquinas/" in k and k in out["devices"]]
     out["mean_e_pce_corners"] = float(np.mean([out["devices"][k]["e_pce_pp"] for k in corners])) \
         if corners else float("nan")
+    # E0: the scaled components s_i = L_i / sigma_i^2 at the weights each regime starts
+    # from, and whether anything non-finite appeared anywhere in the run.
+    out["initial_components"] = [{"stage": h["stage"], "j": h["j"], "s": dict(zip(h["names"], h["s"]))}
+                                 for h in state["history"] if h.get("it") == 1 and "names" in h]
+    values = [h["loss"] for h in state["history"]] + [x for h in state["history"] for x in h.get("s", [])]
+    values += [r["J"] for recs in state["eval"].values() for r in recs]
+    out["nonfinite"] = int(sum(not np.isfinite(v) for v in values))
     return out

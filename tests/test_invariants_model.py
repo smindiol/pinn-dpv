@@ -608,3 +608,14 @@ def test_canonical_paths_accept_flat_layout(tmp_path) -> None:
         (nested / rel).parent.mkdir(parents=True, exist_ok=True)
         (nested / rel).write_bytes(b"")
     assert data.canonical_paths("E2A", str(nested)) == [str(nested / rel) for rel in data.CANONICAL_FILES["E2A"]]
+
+
+def test_initial_component_spread_is_log10_max_over_min() -> None:
+    """Experiments v01, E0: the spread of the initial scaled components is log10(max/min) per
+    regime, so 'same order of magnitude' reads as a spread below 1."""
+    summ = [{"run_id": "r", "initial_components": [
+        {"stage": "eq", "j": 0, "s": {"Poisson": 1e8, "int_phi": 1e2}},
+        {"stage": "sweep", "j": 0, "s": {"Poisson": 2.0, "n": 0.5, "p": 1.0}}]}]
+    rows = steps.initial_component_spread(summ)
+    assert abs(rows[0]["log10_spread"] - 6.0) < 1e-12
+    assert abs(rows[1]["log10_spread"] - np.log10(4.0)) < 1e-12

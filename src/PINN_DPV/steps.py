@@ -34,6 +34,7 @@ __provenance__ = {
         "sigma_per_seed_uses_only_training_devices",
         "pilot_config_matches_protocol",
         "budget_rule_stops_where_drop_falls_below_half_r",
+        "initial_component_spread_is_log10_max_over_min",
     ],
 }
 
@@ -244,7 +245,7 @@ def _memory():
         return {}
 
 
-REHEARSAL = dict(width=64, depth=3, n_q=256, adam_iters=200, lbfgs_iters=20, max_devices=8,
+REHEARSAL = dict(width=512, depth=6, n_q=256, adam_iters=200, lbfgs_iters=20, max_devices=8,
                  max_voltages=4, eval_marks=(100, 200), checkpoint_every=50)
 
 
@@ -273,6 +274,55 @@ def run_pilot(family_stages=PILOT_FAMILY_STAGES, seeds=PILOT_SEEDS, root=None, m
             out.append(run_one(cfg, root=root, remote_url=remote_url, releases=releases,
                                mirror_root=mirror_root, token=token, progress=progress))
     return out
+
+
+# --- rehearsals (Kaggle) --------------------------------------------------------------------------
+def smoke_sigma(family_stages=PILOT_FAMILY_STAGES, max_devices=60):
+    """Rehearsal of `sigma`: the same code on the first devices of the pilot's family-stages."""
+    for fs in family_stages:
+        compute_sigma(fs, max_devices=max_devices)
+    return sigma_overview(family_stages)
+
+
+def sigma_overview(family_stages):
+    """floor / sigma^2 per component (median over seeds) and r, per family-stage."""
+    out = {}
+    for fs in family_stages:
+        recs = [load_sigma(fs, s) for s in SEEDS if os.path.exists(os.path.join(SIGMA_DIR, f"{fs}_seed{s}.json"))]
+        out[fs] = {"r_pp": recs[0]["reference_floor"]["r_pp"], "n_devices": recs[0]["n_devices"],
+                   "floor_over_sigma2": {c: float(np.median([r["floor"][c] / r["sigma2"][c] for r in recs]))
+                                         for c in recs[0]["sigma2"]}}
+        print(fs, json.dumps(out[fs]), flush=True)
+    return out
+
+
+def initial_component_spread(summaries):
+    """log10 of max/min of the initial scaled components per regime: E0's 'same order of
+    magnitude' hypothesis holds for a regime only if this is below 1."""
+    rows = []
+    for s in summaries:
+        for c in s.get("initial_components", []):
+            v = np.array([x for x in c["s"].values() if x > 0])
+            rows.append({"run_id": s["run_id"], "stage": c["stage"], "j": c["j"],
+                         "log10_spread": float(np.log10(v.max() / v.min())) if v.size else float("nan"),
+                         "components": c["s"]})
+    return rows
+
+
+def smoke_pilot(seeds=(0,), max_devices=60):
+    """Rehearsal of `pilot` on a Kaggle GPU: sigma on a few devices, then the shrunk E0 runs,
+    then the initial-component spread and the non-finite count of every run."""
+    smoke_sigma(PILOT_FAMILY_STAGES, max_devices)
+    summaries = run_pilot(PILOT_FAMILY_STAGES, seeds, push=False, rehearsal=True)
+    spread = initial_component_spread(summaries)
+    for row in spread:
+        print(f"[E0] {row['run_id']} {row['stage']} V_{row['j']}: log10(max/min) = {row['log10_spread']:.1f}  "
+              + " ".join(f"{k}={v:.2e}" for k, v in row["components"].items()), flush=True)
+    persistence.write_json(PILOT_DIR, "rehearsal_e0.json",
+                           {"summaries": [{k: v for k, v in s.items() if k != "devices"} for s in summaries],
+                            "initial_component_spread": spread})
+    return {"runs": len(summaries), "nonfinite": sum(s["nonfinite"] for s in summaries),
+            "max_log10_spread": max((r["log10_spread"] for r in spread), default=float("nan"))}
 
 
 # --- report -------------------------------------------------------------------------------------

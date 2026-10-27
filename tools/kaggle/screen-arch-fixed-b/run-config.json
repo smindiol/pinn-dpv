@@ -41,7 +41,7 @@
       "function": "smoke_screen",
       "kwargs": {
         "group": "arch-fixed-b",
-        "tests": false
+        "tests": true
       },
       "module": "PINN_DPV.steps"
     }

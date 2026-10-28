@@ -419,6 +419,11 @@ SCREEN_GROUPS.update({
     "e0b-size-a": [dict(_E0B, width=128, depth=4), dict(_E0B, width=512, depth=4)],
     "e0b-size-b": [dict(_E0B, width=256, depth=6)],
     "e0b-start": [dict(_E0B, qf_start="random"), dict(_E0B, start="data")],
+    # E0b second wave (operator, 2026-10-28): on the E0b winner (k = 3), the data start with
+    # its voltage-range fix, and k = 2 and k = 5 around the optimum.
+    "e0b-start-k3": [dict(_E0B, start="data", fixed_lambdas={"n": 3.0, "p": 3.0})],
+    "e0b-lambda-fine": [dict(_E0B, fixed_lambdas={"n": 2.0, "p": 2.0}),
+                        dict(_E0B, fixed_lambdas={"n": 5.0, "p": 5.0})],
 })
 SCREEN_SHARE_CAP = 0.9  # hypothesis (ii): no component above 90 % of the gradient norm
 

@@ -223,7 +223,9 @@ def profile_batch(setup: Setup, j: int, it: int, eq: bool = False, vin: bool = F
     """
     cfg = setup.cfg
     rng = np.random.default_rng(_seed_int(cfg.seed, j + 2, it, 5))
-    pick = rng.choice(len(setup.train), size=min(cfg.data_batch, len(setup.train)), replace=False)
+    # a device's sweep ends at its own last voltage, so V_j draws only devices that reach it
+    pool = [i for i, d in enumerate(setup.train) if eq or vin or j < len(d.pots)]
+    pick = rng.choice(pool, size=min(cfg.data_batch, len(pool)), replace=False)
     xid, xs, ref, vd = [], [], [], []
     for i in pick:
         d = setup.train[i]

@@ -9,3 +9,18 @@
 - [ ] every computation runs in JAX float64 `test_float64_enabled`
 - [ ] the dPV HDF5 files reach the workers as a private Kaggle dataset on one account shared with the other three, and the operator copies them to Drive for Colab
 - [ ] every remote step is rehearsed on a Kaggle GPU at small scale before it is sent to the Colab A100, and nothing is launched without the operator's authorization
+
+<!-- position revision=research-concept-modelado-computacional-directo-e-inverso-de-celdas-solares-d-r09.md sha256=9ae12827f51472d4c9cba5c9051574e7a7b4ed80cfb35ba698c7cf9bdd98780b derivedAt=2026-10-27T15:14:15Z session=screen-e0-v05 target=kaggle-gpu -->
+- [x] 1. E0 v05 screening group loss-init-a rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-loss-init-a`
+- [x] 2. E0 v05 screening group loss-init-b rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-loss-init-b`
+- [x] 3. E0 v05 screening group arch-fixed-a rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-arch-fixed-a`
+- [x] 4. E0 v05 screening group arch-fixed-b rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-arch-fixed-b`
+- [x] 5. E0 v05 screening group arch-brdr-a rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-arch-brdr-a`
+- [x] 6. E0 v05 screening group arch-brdr-b rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-arch-brdr-b`
+- [x] 7. E0 v05 screening group size-a rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-size-a`
+- [x] 8. E0 v05 screening group size-b rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-size-b`
+- [x] 9. E0 v05 screening group voltage-interfaces-a rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-voltage-interfaces-a`
+- [x] 10. E0 v05 screening group voltage-interfaces-b rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-voltage-interfaces-b`
+- [x] 11. E0 v05 screening group start rehearsed on a Kaggle T4 at the pinned commit `@rehearsal:level screen-start`
+<!-- /position -->
+

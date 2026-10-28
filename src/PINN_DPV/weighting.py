@@ -48,9 +48,10 @@ GUMMEL_QF = ("n", "p", "BCn", "BCp", "int_n", "int_p")
 
 
 def init_state(names, strategy: str, fixed=None):
-    """Initial weights (all one, or the given fixed ones for TPE) and the strategy's statistics."""
+    """Initial weights (all one, or the given fixed ones, one where a component is not named)
+    and the strategy's statistics."""
     n = len(names)
-    lam = jnp.ones(n) if fixed is None else jnp.asarray([fixed[k] for k in names])
+    lam = jnp.ones(n) if fixed is None else jnp.asarray([fixed.get(k, 1.0) for k in names])
     state = {"lam": lam, "t": jnp.asarray(0, jnp.int32)}
     if strategy == "brdr":
         state["m"] = jnp.zeros(n)

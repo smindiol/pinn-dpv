@@ -407,12 +407,25 @@ for _w in ("fixed", "brdr"):
         SCREEN_GROUPS[f"arch-{_w}-{_half}"] = [
             dict(family_stage="E1A", strategy=_w, fourier_features=_ff, activation=_act, separate=_sep)
             for _act in ("tg", "tanh") for _sep in (True, False)]
+#: Experiments v06 (E0b): on the combination E0 chose (no Fourier features, the activation of
+#: zhang2025, one network per output, fixed weights), the size, the L-BFGS budget, the start
+#: and the weight k of the carrier components (lambda_n = lambda_p = k, the rest one). An entry's
+#: "tag" only names the run; it is not a TrainConfig field.
+_E0B = dict(family_stage="E1A", fourier_features=0, activation="tg", separate=True)
+SCREEN_GROUPS.update({
+    "e0b-lambda": [dict(_E0B, fixed_lambdas={"n": 3.0, "p": 3.0}),
+                   dict(_E0B, fixed_lambdas={"n": 10.0, "p": 10.0})],
+    "e0b-lbfgs": [dict(_E0B, lbfgs_iters=500, tag="lb500")],
+    "e0b-size-a": [dict(_E0B, width=128, depth=4), dict(_E0B, width=512, depth=4)],
+    "e0b-size-b": [dict(_E0B, width=256, depth=6)],
+    "e0b-start": [dict(_E0B, qf_start="random"), dict(_E0B, start="data")],
+})
 SCREEN_SHARE_CAP = 0.9  # hypothesis (ii): no component above 90 % of the gradient norm
 
 
 def screen_config(overrides: dict) -> training.TrainConfig:
     base = dict(SCREEN_BASE)
-    base.update(overrides)
+    base.update({k: v for k, v in overrides.items() if k != "tag"})
     return training.TrainConfig(**base)
 
 
@@ -453,7 +466,8 @@ def run_screen(group: str, push: bool = False, groups=None):
     rows = []
     for o in plan:
         cfg = screen_config(o)
-        cfg = training.TrainConfig(**{**asdict(cfg), "run_id": f"screen-{cfg.resolved_run_id()}"})
+        tag = f"-{o['tag']}" if "tag" in o else ""
+        cfg = training.TrainConfig(**{**asdict(cfg), "run_id": f"screen-{cfg.resolved_run_id()}{tag}"})
         try:
             summ = run_one(cfg, out_root=SCREEN_DIR, sigma_dir=sigma_dir, remote_url=remote_url,
                            token=token, progress=progress)

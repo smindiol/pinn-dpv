@@ -107,6 +107,7 @@ class TrainConfig:
         extra += "" if self.loss_form == "log1p" else f"-{self.loss_form}"
         extra += "" if self.qf_start == "equilibrium" else f"-qf{self.qf_start}"
         extra += "" if self.start == "zero" else f"-start{self.start}"
+        extra += "".join(f"-lam{k}{v:g}" for k, v in sorted((self.fixed_lambdas or {}).items()))
         return (f"{self.family_stage}-{self.strategy}-{dat}-{arch}-w{self.width}d{self.depth}"
                 f"{extra}-s{self.seed}")
 
